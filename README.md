@@ -60,12 +60,16 @@ src/s1doom/agent.py    episode loop (turn + realtime)      src/s1doom/cli.py  ty
 | milestone gate (PLAN §4) | heuristic | random | **Jev** | **Laya** (typed-decisions, MPS) |
 |---|---|---|---|---|
 | M1 defend_the_center kills (20 ep), gate: ≥90% of heuristic, fallback <25% | 20.6 ± 1.1 | 20.6 ± 0.7 | **22.45 ± 1.2** ✅ (fallback 1%) | **22.5 ± 0.8** ✅ (fallback 12%) |
-| M2 deadly_corridor vest reached (20 ep, skill 5), gate: ≥50% | 70% | 15% | **90%** ✅ | LAYA_DC |
-| M2 health_gathering_supreme survival tics (20 ep), gate: ≥ heuristic −10% | 2020 | 1236 | **1859** ✅ (−8%) | LAYA_HG |
-| M2 my_way_home success (20 ep) | 100% | 95% | 100% | LAYA_MWH |
+| M2 deadly_corridor vest reached (20 ep, skill 5), gate: ≥50% | 70% | 15% | **90%** ✅ | 70% ✅ (fallback 58%) |
+| M2 health_gathering_supreme survival tics (20 ep), gate: ≥ heuristic −10% | 2020 | 1236 | **1859** ✅ (−8%) | 2020 ✅ (fallback 66%) |
+| M2 my_way_home success (20 ep) | 100% | 95% | 100% | 100% (fallback 19%) |
 | M3 Freedoom2 MAP01 exit (10 seeds, skill 2), gates: heuristic ≥60%, Jev ≥40% | **100%** ✅ | – | **70%** ✅ | 100% (fallback 71%) |
-| MAP01 with **no fallback** (5 seeds): the model alone | – | – | **80%** | LAYA_NOFB |
+| MAP01 with **no fallback** (5 seeds): the model alone | – | – | **80%** | 0/1 (timed out at 32% explored; stopped: ~5 s/decision on MPS) |
 | Latency p50 / p95 per decision | – | – | 116–130 / ~170 ms | 232–449 ms |
+
+**With the v1.2 unseen-attacker fix** (`scan` becomes legal when damage comes from nothing visible), Jev completes **10/10** MAP01 seeds (up from 7/10), with less damage taken. Laya wasn't re-run on v1.2.
+
+**How to read the Laya rows:** Laya's probabilities are flat, so 58–66% of its answers fall below the confidence floor and the heuristic answers instead. Its M2 numbers are therefore largely the heuristic's. With no fallback, Laya still scores 22.8 kills on defend_the_center (5 ep), but didn't finish MAP01. Laya's `in_danger` is anti-informative on outcome labels (4% accuracy); Jev's is 90%.
 
 Realtime mode (35 Hz, ASYNC_PLAYER) runs without frame stalls (0 overruns, p99 per-tic work 8 ms). With Laya on MPS, answers arrive with 230–480 ms staleness, and those older than 400 ms are dropped.
 
@@ -88,5 +92,9 @@ Realtime mode (35 Hz, ASYNC_PLAYER) runs without frame stalls (0 overruns, p99 p
 
 ## Not done / needs outside input
 - `doom1.wad` (E1M1) isn't shipped. Drop it in `./wads/` and run `eval --scenario doom1_e1m1`; the run is skipped cleanly if the file is absent.
-- No CUDA Laya host was available, so the Framework and Jetson configs are untested templates.
+- **Laya on a faster host (e.g. the Framework Desktop):** not run yet. On this Mac (MPS) Laya costs ~145 ms per question, and overnight it degraded to ~5 s per decision. Steps:
+  1. On the Framework: `git clone` this repo, `uv sync --extra laya` (use a ROCm or CUDA torch build for its GPU), then `LAYA_MODELS=typed-decisions uv run s1doom serve-laya` (listens on :8000; set `LAYA_API_KEY` to require a bearer token).
+  2. Here: set `url` in `configs/backends/laya-framework.yaml` (default `http://framework.local:8000`), then run `uv run s1doom bench-backend --backend laya-framework` to measure latency over the network.
+  3. Evals: `uv run s1doom eval --scenario defend_the_center,freedoom2_map01 --backends laya-framework --episodes 10 --tag m3` (add `--no-fallback --tag nofallback` for Laya alone).
+  4. Or run everything on the Framework with `--backends laya-inproc`, which avoids the network hop.
 - M5 (fine-tuning Laya, a VLM front end) wasn't started.
