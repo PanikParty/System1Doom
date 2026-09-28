@@ -129,20 +129,56 @@ def bench_backend(backend: str = "laya-inproc", url: str | None = None, states: 
     console.print(f"-> {path}")
 
 
+ABLATIONS = {
+    "baseline": {},
+    "omniscient": {"omniscient": True},
+    "no_rules": {"include_rules": False},
+    "dt4": {"decision_tics": 4},
+    "dt16": {"decision_tics": 16},
+    "calibrated": {"calibration": "configs/calibration.yaml"},
+    "no_opp_fire": {"opportunistic_fire": False},
+}
+
+
+@app.command()
+def ablate(scenario: str = "defend_the_center", backend: str = "heuristic", episodes: int = 10,
+           seed: int = 1234, which: str = ",".join(ABLATIONS)):
+    """M4 ablations: omniscient vs visible-only, rules on/off, decision rate, calibration."""
+    stamp = time.strftime("%Y-%m-%d_%H%M%S")
+    rows = []
+    for name in which.split(","):
+        kw = dict(ABLATIONS[name])
+        if kw.get("calibration") and not Path(kw["calibration"]).exists():
+            console.print(f"[yellow]skip {name}: {kw['calibration']} missing (run calibrate)[/]")
+            continue
+        cfg = RunConfig(scenario=scenario, backend=backend, episodes=episodes, seed=seed,
+                        run_id=f"{stamp}_{scenario}_{backend}_abl-{name}", **kw)
+        run_id, _ = _run(cfg)
+        if run_id:
+            s = json.loads((RUNS_DIR / run_id / "summary.json").read_text())
+            rows.append({"scenario": f"{scenario}:{name}", "backend": backend, "run_id": run_id,
+                         "tag": f"ablation_{scenario}_{backend}", **s["aggregate"]})
+    out = RUNS_DIR / f"eval_{stamp}_ablation_{scenario}_{backend}"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "matrix.json").write_text(json.dumps(rows, indent=2, default=str))
+    _print_matrix(rows)
+
+
 @app.command()
 def calibrate(runs: list[str] = typer.Option(..., help="run dirs or globs"),
-              out: str = "configs/calibration.yaml", min_n: int = 30):
+              out: str = "configs/calibration.yaml", min_n: int = 30,
+              labels: str = typer.Option("outcome", help="outcome | agreement (imitation of heuristic)")):
     """Fit temperature scaling per (backend, qtype, n_options) from logged runs."""
     import yaml
 
     from s1doom.decision.calibration import collect, fit
     from s1doom.telemetry.report import reliability_png
 
-    groups = collect(runs)
+    groups = collect(runs, labels)
     temps, report = fit(groups, min_n)
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(yaml.safe_dump({"temperatures": temps, "fitted_at": time.strftime("%Y-%m-%d"),
-                                         "runs": runs}))
+                                         "labels": labels, "runs": runs}))
     t = Table("group", "n", "T", "acc", "ECE before", "ECE after")
     for k, r in report.items():
         t.add_row(k, str(r["n"]), f"{r['T']:.2f}", f"{r['acc']:.2f}", f"{r['ece_before']:.3f}", f"{r['ece_after']:.3f}")

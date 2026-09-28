@@ -1,0 +1,8 @@
+fitted_at: '2026-09-27'
+labels: outcome
+runs:
+- runs/*_jev*
+- runs/*_laya-inproc*
+temperatures:
+  jev|noul|2: 0.6996
+  laya-inproc|noul|2: 12.0

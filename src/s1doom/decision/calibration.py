@@ -81,8 +81,14 @@ def ece(conf: np.ndarray, correct: np.ndarray, bins: int = 10) -> float:
     return float(e)
 
 
-def collect(run_globs: list[str]) -> dict[str, list[tuple[dict, str]]]:
-    """group key -> list of (probabilities dict, label option)."""
+def collect(run_globs: list[str], labels: str = "outcome") -> dict[str, list[tuple[dict, str]]]:
+    """group key -> list of (probabilities dict, label option).
+
+    labels="outcome": only questions with a ground-truth outcome (in_danger vs damage actually
+    taken next period). labels="agreement": also use the shadow heuristic's answer as the label
+    for choice/score questions. That measures imitation of the heuristic, not correctness: Jev
+    disagrees with the heuristic's MAP01 mode 80% of the time yet completes the level.
+    """
     groups: dict[str, list[tuple[dict, str]]] = defaultdict(list)
     files: list[Path] = []
     for g in run_globs:
@@ -99,12 +105,15 @@ def collect(run_globs: list[str]) -> dict[str, list[tuple[dict, str]]]:
                 continue
             raw = row.get("raw_answers") or {}
             heur = row.get("heuristic_answers") or {}
+            outcome = row.get("outcome") or {}
             for q, a in raw.items():
                 if q not in heur:
                     continue
+                if labels == "outcome" and q not in outcome:
+                    continue
                 h = heur[q]
                 if a["type"] == "noul":
-                    label = "true" if (row.get("outcome", {}).get(q, h["value"] >= 0.5)) else "false"
+                    label = "true" if (outcome.get(q, h["value"] >= 0.5)) else "false"
                     probs = {"true": a["value"], "false": 1 - a["value"]}
                     k = 2
                 elif a["type"] == "choice":
