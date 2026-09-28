@@ -5,3 +5,4 @@ modes: [grab_pickup, explore]
 objective: gather
 success: survive
 notes: Acid floor drains health; collect medkits, avoid poison vials. Metric = survival tics.
+mapmodel: true

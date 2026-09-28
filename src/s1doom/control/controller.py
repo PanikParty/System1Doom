@@ -175,6 +175,20 @@ class Controller:
             act, done = M.advance(self, p)
         else:
             act, done = {}, True
+        # generic stuck recovery when steering directly (no navigator in charge)
+        if self.can_move and act.get("forward", 0) > 20 and (self.nav is None or self.nav.goal is None
+                                                              or mode in ("fight", "advance")):
+            moved = self.moved_recently(p, 20)
+            if moved is not None and moved < 6:
+                if self.pickup_id is not None and mode in ("grab_pickup", "get_key"):
+                    self.blacklist[self.pickup_id] = p.tic + 35 * 10
+                    done = True
+                self.wander_turn_until = p.tic + self.rng.randint(8, 16)
+                self.scan_dir = self.rng.choice((-1.0, 1.0))
+                self._pos_hist.clear()
+                self.events.add("stuck")
+        if self.wander_turn_until > p.tic and mode not in ("fight", "retreat"):
+            act = {"turn": 10.0 * self.scan_dir, "forward": -20.0}
         if done:
             self.events.add("macro_done")
         if self.nav is not None and self.nav.stuck_count:

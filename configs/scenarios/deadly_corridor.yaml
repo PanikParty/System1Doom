@@ -5,3 +5,4 @@ modes: [fight, retreat, grab_pickup, advance]
 objective: reach_goal
 success: not_dead_before_timeout  # episode ends when the green vest is reached
 notes: Reach the green armor at the end of the corridor (east, +x). Shooters line both sides.
+mapmodel: true
