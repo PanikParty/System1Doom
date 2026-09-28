@@ -21,6 +21,8 @@ class Perception:
     _prev_damage: float | None = None
     _prev_health: float | None = None
     _prev_kills: float = 0.0
+    _last_unseen_hit: int = -10 ** 9
+    UNSEEN_MEMORY_TICS = 35
 
     def reset(self) -> None:
         self.mem.clear()
@@ -28,6 +30,7 @@ class Perception:
         self._prev_damage = None
         self._prev_health = None
         self._prev_kills = 0.0
+        self._last_unseen_hit = -10 ** 9
 
     def update(self, obs: Obs) -> Percept:
         px, py, ang = obs.v("POSITION_X"), obs.v("POSITION_Y"), obs.v("ANGLE")
@@ -100,5 +103,7 @@ class Perception:
         p = Percept(tic=obs.tic, x=px, y=py, z=obs.v("POSITION_Z"), angle=ang, health=health,
                     armor=obs.v("ARMOR"), weapon=weapon, ammo=obs.v("SELECTED_WEAPON_AMMO"),
                     vars=obs.vars, entities=list(self.mem.values()), damage_taken=dmg, events=events)
-        p.unseen_attack = dmg > 0 and not p.visible_monsters
+        if dmg > 0 and not p.visible_monsters:
+            self._last_unseen_hit = obs.tic
+        p.unseen_attack = obs.tic - self._last_unseen_hit <= self.UNSEEN_MEMORY_TICS and not p.visible_monsters
         return p

@@ -34,6 +34,8 @@ def heuristic_mode(state: dict, options: list[str]) -> str:
             return "retreat"
         if ok("fight") and not (s.get("low_ammo") and s["weapon"] != "fist" and not any(m["aligned"] for m in vis)):
             return "fight"
+    if ok("scan") and sit.get("hit_by_unseen") and not vis:
+        return "scan"
     if ok("get_key") and any(p["kind"] == "key" for p in state["pickups"]):
         return "get_key"
     if ok("grab_pickup") and worth and (s["health"] < 60 or any(p["range"] in ("melee", "close") for p in worth)
