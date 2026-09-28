@@ -12,6 +12,7 @@ questions:
   mode:
     type: choice
     instructions: What should the player do for the next half second?
+    alt_instructions: Given the player's health, threats and goal, which single tactic is best right now?
     options:
       fight: Attack a visible monster. Turn toward it and shoot once aligned.
       scan: No monster in view. Turn in place to look for monsters.

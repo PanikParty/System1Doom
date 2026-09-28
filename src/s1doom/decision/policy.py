@@ -73,6 +73,12 @@ class Policy:
         for k, v in forced.items():
             final[k] = (v, "forced")
 
+        # self-consistency: two phrasings of `mode` must agree, else the model's answer is not used
+        if "mode_alt" in final:
+            alt, alt_src = final.pop("mode_alt")
+            if final.get("mode", (None, ""))[1] == "model" and (alt_src != "model" or alt != final["mode"][0]):
+                final["mode"] = (heur["mode"].argmax, "fallback")
+                d.sources["mode_consistency"] = "disagree"
         # hysteresis on mode
         prev = self.current
         mode, src = final.get("mode", (legal_modes[0], "forced"))

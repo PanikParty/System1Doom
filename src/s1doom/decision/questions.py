@@ -57,7 +57,8 @@ def _fmt(tpl: str, row: dict) -> str:
         return str(row)
 
 
-def build_questions(ps: PromptSet, bs: BuiltState, which: set[str], modes: list[str]) -> tuple[dict, dict]:
+def build_questions(ps: PromptSet, bs: BuiltState, which: set[str], modes: list[str],
+                    self_consistency: bool = False) -> tuple[dict, dict]:
     """Returns (questions to send, forced answers for single-option questions)."""
     q: dict = {}
     forced: dict = {}
@@ -70,6 +71,9 @@ def build_questions(ps: PromptSet, bs: BuiltState, which: set[str], modes: list[
             s = spec["mode"]
             q["mode"] = {"type": "choice", "instructions": s["instructions"],
                          "criteria": {m: s["options"][m] for m in modes}}
+            if self_consistency and s.get("alt_instructions"):
+                q["mode_alt"] = {"type": "choice", "instructions": s["alt_instructions"],
+                                 "criteria": dict(q["mode"]["criteria"])}
     if "target" in which:
         vis = [m for m in st["monsters"] if m["visible"]]
         if len(vis) == 1:

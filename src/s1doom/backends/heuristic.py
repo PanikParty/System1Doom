@@ -97,7 +97,7 @@ def answer_all(state: dict, questions: dict) -> dict[str, Answer]:
     for k, q in questions.items():
         if q["type"] == "choice":
             opts = list(q["criteria"])
-            fn = {"mode": heuristic_mode, "target": heuristic_target, "pickup": heuristic_pickup,
+            fn = {"mode": heuristic_mode, "mode_alt": heuristic_mode, "target": heuristic_target, "pickup": heuristic_pickup,
                   "weapon": heuristic_weapon}.get(k)
             pick = fn(state, opts) if fn else opts[0]
             out[k] = Answer(type="choice", value=pick, probabilities=_soft(opts, pick))

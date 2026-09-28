@@ -48,13 +48,14 @@ def play(scenario: str = "defend_the_center", backend: str = "heuristic", mode: 
          omniscient: bool = False, no_rules: bool = False, decision_tics: int | None = None,
          calibration: str | None = None, url: str | None = None, skill: int | None = None,
          save_frames: int = 0, max_tics: int | None = None, floor: float = 0.55,
-         no_fallback: bool = False, max_calls: int | None = None, no_opportunistic_fire: bool = False):
+         no_fallback: bool = False, max_calls: int | None = None, no_opportunistic_fire: bool = False,
+         self_consistency: bool = False):
     """Play episodes of a scenario with a backend."""
     cfg = RunConfig(scenario=scenario, backend=backend, mode=mode, episodes=episodes, seed=seed,
                     overlay=overlay, visible=window, omniscient=omniscient, include_rules=not no_rules,
                     decision_tics=decision_tics, calibration=calibration, url=url, skill=skill,
                     save_frames_every=save_frames, max_tics=max_tics, max_calls=max_calls,
-                    opportunistic_fire=not no_opportunistic_fire,
+                    opportunistic_fire=not no_opportunistic_fire, self_consistency=self_consistency,
                     policy=PolicyConfig(confidence_floor=floor, fallback_enabled=not no_fallback))
     _run(cfg)
 
@@ -137,6 +138,7 @@ ABLATIONS = {
     "dt16": {"decision_tics": 16},
     "calibrated": {"calibration": "configs/calibration.yaml"},
     "no_opp_fire": {"opportunistic_fire": False},
+    "self_consistency": {"self_consistency": True},
 }
 
 

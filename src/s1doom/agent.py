@@ -61,6 +61,7 @@ class RunConfig:
     replay_path: str | None = None
     max_tics: int | None = None
     opportunistic_fire: bool = True
+    self_consistency: bool = False
 
 
 class CircuitBreaker:
@@ -158,7 +159,7 @@ class Agent:
         bs = build_state(p, ctx)
         modes = legal_modes(bs, self.sc.modes, self.level is not None)
         which = self.scheduler.pick(bs, self.controller.can_move)
-        questions, forced = build_questions(self.prompts, bs, which, modes)
+        questions, forced = build_questions(self.prompts, bs, which, modes, self.cfg.self_consistency)
         return bs, modes, which, questions, forced
 
     def _context(self, recent: list[str], exit_len: float) -> StateContext:

@@ -136,3 +136,18 @@ def test_temper_and_fit_recover_overconfidence():
     cal = Calibrator({"x|choice|2": temps["x|choice|2"]})
     a = cal.apply("x", Answer(type="choice", value="a", probabilities={"a": .95, "b": .05}))
     assert a.probabilities["a"] == pytest.approx(0.7, abs=0.08)
+
+
+def test_self_consistency_disagreement_falls_back():
+    bs = build_state(percept([("DoomImp", 300, 0, True)]), StateContext())
+    crit = {"fight": None, "explore": None}
+    q = {"mode": {"type": "choice", "instructions": "x", "criteria": crit},
+         "mode_alt": {"type": "choice", "instructions": "y", "criteria": crit}}
+    r = _res(mode=Answer(type="choice", value="explore", probabilities={"fight": .1, "explore": .9}),
+             mode_alt=Answer(type="choice", value="fight", probabilities={"fight": .9, "explore": .1}))
+    d, _, _ = Policy("t").decide(0, bs.state, q, {}, r, True, ["fight", "explore"])
+    assert d.sources["mode"] == "fallback" and d.sources["mode_consistency"] == "disagree"
+    r2 = _res(mode=Answer(type="choice", value="explore", probabilities={"fight": .1, "explore": .9}),
+              mode_alt=Answer(type="choice", value="explore", probabilities={"fight": .1, "explore": .9}))
+    d2, _, _ = Policy("t").decide(0, bs.state, q, {}, r2, True, ["fight", "explore"])
+    assert d2.sources["mode"] == "model" and d2.mode == "explore"
