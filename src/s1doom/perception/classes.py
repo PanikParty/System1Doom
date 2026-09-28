@@ -58,8 +58,9 @@ KEY_COLOR = {"BlueCard": "blue", "BlueSkull": "blue", "RedCard": "red", "RedSkul
 # Doom weapon slot -> name (SELECTED_WEAPON values)
 WEAPON_SLOTS = {1: "fist", 2: "pistol", 3: "shotgun", 4: "chaingun", 5: "rocket_launcher",
                 6: "plasma_rifle", 7: "bfg"}
-# weapon slot -> ammo game variable index
-WEAPON_AMMO = {1: None, 2: 1, 3: 2, 4: 1, 5: 3, 6: 4, 7: 4}
+# weapon slot -> AMMOn game variable. ViZDoom indexes AMMOn by weapon SLOT (verified 1.3.1:
+# pistol start -> AMMO2 = AMMO4 = 50 bullets), not by ammo type.
+WEAPON_AMMO = {1: None, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7}
 
 IGNORED = {"DoomPlayer", "Blood", "BulletPuff", "TeleportFog", "ItemFog", "DeadMarine"}
 

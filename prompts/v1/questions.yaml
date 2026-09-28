@@ -1,5 +1,5 @@
 # Prompt set v1. Every log line records `prompt_version`. Do not inline these in Python.
-version: v1
+version: v1.1
 
 rules: >-
   bearing_deg: 0 = straight ahead, positive = LEFT, negative = RIGHT.
@@ -53,5 +53,5 @@ questions:
 
   weapon:
     type: choice
-    instructions: Which weapon should the player use against the current threats?
+    instructions: Which weapon should the player use against the current threats? Ranged weapons with ammo beat the fist.
     option_template: "{name} ({ammo} ammo)"

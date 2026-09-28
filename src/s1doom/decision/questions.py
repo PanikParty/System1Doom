@@ -95,7 +95,10 @@ def build_questions(ps: PromptSet, bs: BuiltState, which: set[str], modes: list[
         q["aggression"] = {"type": "score", "instructions": s["instructions"], "criteria": s["criteria"]}
     if "weapon" in which and len(bs.weapons) > 1:
         s = spec["weapon"]
-        ammo = {k: v for k, v in bs.weapons.items()}
-        q["weapon"] = {"type": "choice", "instructions": s["instructions"],
-                       "criteria": {w: w.replace("_", " ") for w in ammo}}
+        crit = {}
+        for w in bs.weapons:
+            ammo = bs.weapon_ammo.get(w)
+            row = {"name": w.replace("_", " "), "ammo": "melee, no" if w in ("fist", "chainsaw") else ammo}
+            crit[w] = _fmt(s["option_template"], row)
+        q["weapon"] = {"type": "choice", "instructions": s["instructions"], "criteria": crit}
     return q, forced

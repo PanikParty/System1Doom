@@ -151,3 +151,16 @@ def test_self_consistency_disagreement_falls_back():
               mode_alt=Answer(type="choice", value="explore", probabilities={"fight": .1, "explore": .9}))
     d2, _, _ = Policy("t").decide(0, bs.state, q, {}, r2, True, ["fight", "explore"])
     assert d2.sources["mode"] == "model" and d2.mode == "explore"
+
+
+def test_weapon_ammo_uses_slot_indexed_vars():
+    """ViZDoom AMMOn is indexed by weapon slot (AMMO2 = pistol bullets), not ammo type."""
+    from s1doom.decision.state_builder import owned_weapons
+    p = percept()
+    p.vars = {"WEAPON1": 1, "WEAPON2": 1, "WEAPON3": 1, "AMMO2": 50, "AMMO3": 8}
+    p.weapon = 2
+    w = owned_weapons(p)
+    assert w["pistol"] == (2, 50) and w["shotgun"] == (3, 8)
+    bs = build_state(p, StateContext())
+    q, _ = build_questions(PS, bs, {"weapon"}, ["fight"])
+    assert "50" in q["weapon"]["criteria"]["pistol"] and "melee" in q["weapon"]["criteria"]["fist"]

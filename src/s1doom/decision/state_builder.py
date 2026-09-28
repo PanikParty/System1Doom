@@ -37,6 +37,7 @@ class BuiltState:
     refs: dict[str, object]           # "m1" -> Entity, "p1" -> Entity, "d1" -> door dict
     tokens: int
     weapons: dict[str, int]           # weapon option key -> slot
+    weapon_ammo: dict[str, int] = field(default_factory=dict)
 
 
 def threat_word(t: float) -> str:
@@ -144,4 +145,5 @@ def build_state(p: Percept, ctx: StateContext) -> BuiltState:
         tokens = count_tokens(state)
     kept = {r["ref"] for k in ("monsters", "pickups", "doors") for r in state.get(k, [])}
     refs = {k: v for k, v in refs.items() if k in kept}
-    return BuiltState(state, refs, tokens, {k: v[0] for k, v in weapons.items()})
+    return BuiltState(state, refs, tokens, {k: v[0] for k, v in weapons.items()},
+                      {k: v[1] for k, v in weapons.items()})
