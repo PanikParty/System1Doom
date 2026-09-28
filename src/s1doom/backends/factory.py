@@ -8,7 +8,7 @@ import yaml
 from s1doom.backends.base import DecisionBackend
 
 CONFIG_DIR = Path(__file__).resolve().parents[3] / "configs" / "backends"
-KINDS = ("jev", "laya-http", "laya-inproc", "heuristic", "random", "replay")
+KINDS = ("jev", "laya-http", "laya-inproc", "systemone-http", "heuristic", "random", "replay")
 
 
 def backend_config(name: str) -> dict:
@@ -40,6 +40,13 @@ def make_backend(name: str, url: str | None = None, seed: int | None = None,
         b = make_laya_http(url or cfg.get("url"), cfg.get("model", "typed-decisions"), cfg.get("timeout_s", 10.0))
         b.name = name if name != "laya-http" else b.name
         return b
+    if kind == "systemone-http":
+        # any Jev-compatible /v1/systemone server (e.g. scripts/semif_serve.py)
+        from s1doom.backends.http import SystemOneHTTP, read_key
+
+        return SystemOneHTTP(cfg.get("name", name), url or cfg["url"], cfg.get("model"),
+                             read_key(cfg.get("key_env", "SYSTEMONE_API_KEY"), "SYSTEMONE_API_KEY_FILE", None),
+                             timeout_s=cfg.get("timeout_s", 10.0))
     if kind == "laya-inproc":
         from s1doom.backends.laya_inproc import LayaInproc
 

@@ -1,0 +1,136 @@
+{
+  "request": {
+    "state": {
+      "self": {
+        "health": 62,
+        "armor": 0,
+        "weapon": "shotgun",
+        "ammo": 11,
+        "low_ammo": false,
+        "taking_damage": true
+      },
+      "situation": {
+        "monsters_visible": 2,
+        "nearest_threat_range": "close",
+        "aligned_target": true,
+        "objective": "reach_exit",
+        "exit_known": false
+      },
+      "monsters": [
+        {
+          "ref": "m1",
+          "kind": "imp",
+          "visible": true,
+          "range": "close",
+          "bearing_deg": 2,
+          "aligned": true,
+          "side": "ahead",
+          "threat": "high"
+        },
+        {
+          "ref": "m2",
+          "kind": "zombieman",
+          "visible": true,
+          "range": "far",
+          "bearing_deg": -40,
+          "aligned": false,
+          "side": "right",
+          "threat": "low"
+        }
+      ],
+      "pickups": [
+        {
+          "ref": "p1",
+          "kind": "health",
+          "item": "Medikit",
+          "range": "mid",
+          "side": "left",
+          "worth_it": true
+        }
+      ],
+      "rules": "bearing_deg: 0 = straight ahead, positive = LEFT. aligned=true means shooting now hits."
+    },
+    "questions": {
+      "mode": {
+        "type": "choice",
+        "instructions": "What should the player do now?",
+        "criteria": {
+          "fight": "Attack a visible monster.",
+          "retreat": "Back away.",
+          "grab_pickup": "Get the pickup."
+        }
+      },
+      "target": {
+        "type": "choice",
+        "instructions": "Which monster to attack?",
+        "criteria": {
+          "m1": "imp, close, aligned",
+          "m2": "zombieman, far, right"
+        }
+      },
+      "in_danger": {
+        "type": "noul",
+        "instructions": "Will the player take significant damage in the next second?"
+      },
+      "aggression": {
+        "type": "score",
+        "instructions": "How aggressively should the player fight?",
+        "criteria": [
+          "flee",
+          "cautious",
+          "engage",
+          "all-in"
+        ]
+      }
+    }
+  },
+  "response": {
+    "model": "semif-Qwen3.5-4B-mlx",
+    "answers": {
+      "mode": {
+        "type": "choice",
+        "choice": "fight",
+        "probabilities": {
+          "fight": 0.6788,
+          "retreat": 0.0715,
+          "grab_pickup": 0.2497
+        },
+        "confidence": 0.6788
+      },
+      "target": {
+        "type": "choice",
+        "choice": "m1",
+        "probabilities": {
+          "m1": 0.9991,
+          "m2": 0.0009
+        },
+        "confidence": 0.9991
+      },
+      "in_danger": {
+        "type": "noul",
+        "noul": 0.8808
+      },
+      "aggression": {
+        "type": "score",
+        "score": 1.7915,
+        "legend": {
+          "0": "flee",
+          "1": "cautious",
+          "2": "engage",
+          "3": "all-in"
+        },
+        "probabilities": {
+          "0": 0.1172,
+          "1": 0.0913,
+          "2": 0.6744,
+          "3": 0.1172
+        },
+        "confidence": 0.6744
+      }
+    },
+    "usage": {
+      "input_tokens": 1440,
+      "output_tokens": 0
+    }
+  }
+}

@@ -36,7 +36,7 @@ REQ_Q = {
 async def main(which):
     OUT.mkdir(parents=True, exist_ok=True)
     for name in which:
-        b = make_backend({"jev": "jev", "laya": "laya-inproc"}[name])
+        b = make_backend({"jev": "jev", "laya": "laya-inproc", "semif": "semif"}[name])
         res = await b.system_one(REQ_STATE, REQ_Q)
         (OUT / f"{name}_response.json").write_text(json.dumps(
             {"request": {"state": REQ_STATE, "questions": REQ_Q}, "response": res.raw}, indent=2))

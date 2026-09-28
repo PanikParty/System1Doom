@@ -1,0 +1,6 @@
+# SemIf (github.com/TheoLeeCJ/SemIf-OpenJev): Qwen3.5-4B typed-option logits, served by
+# scripts/semif_serve.py from SemIf's own venv (see README "SemIf").
+kind: systemone-http
+name: semif
+url: http://127.0.0.1:8010
+timeout_s: 30

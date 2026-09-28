@@ -33,9 +33,22 @@ Keys: Jev reads `TYPESAFE_API_KEY`, or a key file at `TYPESAFE_API_KEY_FILE` (de
 | `jev` | raw HTTP `POST api.typesafe.ai/v1/systemone` | Retries 429/503/529 with backoff and jitter. A circuit breaker falls back to the heuristic. `--max-calls` caps the budget. |
 | `laya-http` | `laya-serve` `/v1/systemone` | The host is config (`configs/backends/laya-*.yaml`). |
 | `laya-inproc` | `laya.load(..., subfolder="typed-decisions")` | MPS on Apple silicon. |
+| `semif` | `scripts/semif_serve.py` → `/v1/systemone` | [SemIf](https://github.com/TheoLeeCJ/SemIf-OpenJev) (Qwen3.5-4B typed-option logits, MIT). Runs in SemIf's own venv (MLX on Apple Silicon, torch/CUDA elsewhere). |
+| any `systemone-http` | Jev-compatible HTTP | Point a `configs/backends/<name>.yaml` with `kind: systemone-http` at any server that speaks the protocol. |
 | `replay` | calls.jsonl | Deterministic regression runs. |
 
 Configs for other Laya hosts (Framework Desktop, Jetson) are in `configs/backends/`. Point `url` at a running `laya-serve`.
+
+## SemIf (open-model Jev-style decisions)
+SemIf pins its own torch/mlx versions, so it runs in a separate venv and serves the Jev wire protocol:
+```bash
+git clone https://github.com/TheoLeeCJ/SemIf-OpenJev ~/Research/SemIf-OpenJev
+cd ~/Research/SemIf-OpenJev && uv venv --python 3.11 .venv && uv pip install -p .venv/bin/python -e '.[mlx]'
+.venv/bin/python ~/Research/System1Doom/scripts/semif_serve.py --backend mlx --port 8010   # first start downloads ~8 GB
+# on a CUDA box (e.g. a 3090): --backend torch --device cuda --host 0.0.0.0, then set url in configs/backends/semif.yaml
+uv run s1doom play --scenario freedoom2_map01 --backend semif      # from this repo
+```
+Mapping: choice → options, noul → yes/no options, score → one option per level (score = probability-weighted level). All questions share one state, so they're scored with SemIf's shared-prefix mode. On an M-series Mac with MLX BF16 it takes ~1.3 s for one question and ~1.8 s for three (p50), so use turn mode.
 
 ## What's in a decision
 Every decision logs one row to `runs/<id>/ep_<n>/calls.jsonl`. The row holds the state, the questions, the raw answers, the calibrated probabilities, the shadow heuristic's answers, the final decision with a per-question `source` (model | fallback | forced | held), latency, usage, `prompt_version`, `fairness`, position, and an outcome label for `in_danger`. Each episode also records a `.lmp` demo.
