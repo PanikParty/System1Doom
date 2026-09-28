@@ -34,6 +34,7 @@ class EpisodeMetrics:
     mode_switches_per_min: float = 0.0
     latency_ms: list[float] = field(default_factory=list)
     staleness_ms: list[float] = field(default_factory=list)
+    tic_work_ms: list[float] = field(default_factory=list)   # realtime: our per-tic processing time
     dropped_stale: int = 0
     input_tokens: int = 0
     state_tokens_max: int = 0
@@ -52,6 +53,10 @@ class EpisodeMetrics:
         d["staleness_p50"] = float(np.percentile(st, 50)) if st is not None else None
         d["staleness_p95"] = float(np.percentile(st, 95)) if st is not None else None
         del d["staleness_ms"]
+        tw = np.array(self.tic_work_ms) if self.tic_work_ms else None
+        d["tic_work_p99_ms"] = float(np.percentile(tw, 99)) if tw is not None else None
+        d["tic_overruns"] = int((tw > 1000 / 35).sum()) if tw is not None else None  # frame stalls
+        del d["tic_work_ms"]
         return d
 
 

@@ -196,6 +196,7 @@ class Agent:
         mode_counts: dict[str, int] = {}
         teleported = False
         last_xy = None
+        t_next_tic = time.perf_counter()
 
         def finish_decision(tic, bs, modes, which, questions, forced, result, err, triggered, staleness=None):
             nonlocal pending_row, dmg_since, last_decision
@@ -238,6 +239,7 @@ class Agent:
             while not self.env.finished():
                 if cfg.max_tics and self.env.tic >= cfg.max_tics:
                     break
+                t_tic = time.perf_counter()
                 obs = self.env.observe()
                 if obs is None:
                     break
@@ -304,6 +306,8 @@ class Agent:
                         next_decision = self.env.tic + self.decision_tics
 
                 act = self.controller.act(p)
+                if worker is not None:
+                    m.tic_work_ms.append((time.perf_counter() - t_tic) * 1000)
                 ctrl_events = set(self.controller.events)
                 if self.overlay is not None and obs.screen is not None:
                     path = self.controller.nav.path[self.controller.nav.idx:] if (self.controller.nav and self.controller.nav.path) else None
@@ -311,7 +315,14 @@ class Agent:
                                               self.controller.target_id, path)
                     if not self.overlay.emit(img, self.env.tic):
                         break
+                if worker is not None:
+                    # ViZDoom's make_action blocks until the next tic while holding the GIL,
+                    # starving the decision thread. Sleep (GIL released) until the tic is due.
+                    now = time.perf_counter()
+                    if t_next_tic > now:
+                        time.sleep(max(0.0, t_next_tic - now - 0.002))
                 self.env.step(act, 1)
+                t_next_tic = max(time.perf_counter(), t_next_tic) + 1 / 35
         finally:
             if worker is not None:
                 worker.stop()

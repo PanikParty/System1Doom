@@ -1,6 +1,8 @@
 """Parse Doom-format map lumps with omgifol into plain numpy-friendly structures."""
 from __future__ import annotations
 
+import re
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -92,7 +94,76 @@ class MapData:
         return next((t for t in self.things if t.type == 1), None)
 
 
+# UDMF (ZDoom/Hexen) special numbers -> vanilla-equivalent kind
+UDMF_KIND = {10: "door", 11: "door", 12: "door", 13: "door", 202: "door", 243: "exit", 244: "secret_exit",
+             70: "teleport", 71: "teleport", 60: "lift", 61: "lift", 62: "lift", 63: "lift", 64: "lift"}
+UDMF_USE_KINDS = {"door", "exit", "secret_exit", "lift"}
+
+
+def _udmf_blocks(text: str) -> list[tuple[str, dict]]:
+    text = re.sub(r"//[^\n]*", "", text)
+    out = []
+    for m in re.finditer(r"(\w+)\s*\{([^}]*)\}", text):
+        kv = {}
+        for k, v in re.findall(r"(\w+)\s*=\s*([^;]+);", m.group(2)):
+            v = v.strip()
+            if v.startswith('"'):
+                kv[k.lower()] = v.strip('"')
+            elif v in ("true", "false"):
+                kv[k.lower()] = v == "true"
+            else:
+                try:
+                    kv[k.lower()] = float(v) if "." in v else int(v)
+                except ValueError:
+                    kv[k.lower()] = v
+        out.append((m.group(1).lower(), kv))
+    return out
+
+
+def _load_udmf(wad_path: str, map_name: str, textmap: bytes) -> MapData:
+    blocks = _udmf_blocks(textmap.decode("latin-1"))
+    verts = [kv for t, kv in blocks if t == "vertex"]
+    sides = [kv for t, kv in blocks if t == "sidedef"]
+    secs = [kv for t, kv in blocks if t == "sector"]
+    lines = []
+    for i, kv in enumerate(kv for t, kv in blocks if t == "linedef"):
+        a, b = verts[kv["v1"]], verts[kv["v2"]]
+        fs, bs = kv.get("sidefront", -1), kv.get("sideback", -1)
+        front = sides[fs]["sector"] if 0 <= fs < len(sides) else -1
+        back = sides[bs]["sector"] if 0 <= bs < len(sides) else -1
+        sp = kv.get("special", 0)
+        kind = UDMF_KIND.get(sp, "other" if sp else None)
+        tag = kv.get("arg0", 0) if kind in ("remote_door", "lift", "teleport") else 0
+        l = Line(i, float(a["x"]), float(a["y"]), float(b["x"]), float(b["y"]), front, back,
+                 sp, tag, bool(kv.get("blocking", False)), kind)
+        l.udmf_use = bool(kv.get("playeruse", False))
+        lines.append(l)
+    sectors = [Sector(i, float(kv.get("heightfloor", 0)), float(kv.get("heightceiling", 0)),
+                      int(kv.get("special", 0)), int(kv.get("id", 0))) for i, kv in enumerate(secs)]
+    things = [Thing(int(kv.get("type", 0)), float(kv["x"]), float(kv["y"]), int(kv.get("angle", 0)),
+                    (bool(kv.get("skill1", True)), bool(kv.get("skill3", True)), bool(kv.get("skill5", True))))
+              for t, kv in blocks if t == "thing"]
+    return MapData(Path(wad_path).stem, map_name, lines, sectors, things)
+
+
+def _raw_lumps(wad_path: str) -> list[tuple[str, bytes]]:
+    d = Path(wad_path).read_bytes()
+    n, off = struct.unpack("<ii", d[4:12])
+    out = []
+    for i in range(n):
+        pos, size = struct.unpack("<ii", d[off + 16 * i: off + 16 * i + 8])
+        name = d[off + 16 * i + 8: off + 16 * i + 16].rstrip(b"\0").decode("latin-1")
+        out.append((name, d[pos:pos + size]))
+    return out
+
+
 def load_map(wad_path: str, map_name: str) -> MapData:
+    lumps = _raw_lumps(wad_path)
+    names = [n for n, _ in lumps]
+    if map_name.upper() in names:
+        i = names.index(map_name.upper())
+        if i + 1 < len(lumps) and lumps[i + 1][0] == "TEXTMAP":
+            return _load_udmf(wad_path, map_name, lumps[i + 1][1])
     w = omg.WAD(str(wad_path))
     if map_name not in w.maps:
         raise KeyError(f"{map_name} not in {wad_path}")
