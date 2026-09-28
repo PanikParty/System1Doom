@@ -126,8 +126,9 @@ class Navigator:
         if e is not None and e.gate >= 0 and not self.level.sector_open(e.gate):
             kind = nav.dynamic.get(e.gate)
             st.waiting = kind
-            if e.use_line >= 0:
-                l = self.level.m.lines[e.use_line]
+            door_ln = self.level.door_face(e.gate, p.x, p.y) if e.use_line >= 0 else None
+            if door_ln is not None:
+                l = door_ln
                 mx, my = l.mid
                 if math.hypot(p.x - mx, p.y - my) < 96:
                     tx, ty = mx, my

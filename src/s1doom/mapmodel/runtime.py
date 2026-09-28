@@ -107,6 +107,19 @@ class LevelModel:
                 return k
         return None
 
+    def door_face(self, sector: int, x: float, y: float) -> Line | None:
+        """Nearest manual-door line of `sector` usable from (x, y), i.e. we're on its front side."""
+        best, bd = None, math.inf
+        for li in self.nav.door_lines.get(sector, []):
+            l = self.m.lines[li]
+            nx, ny = l.front_normal
+            if (x - l.mid[0]) * nx + (y - l.mid[1]) * ny <= 0:
+                continue
+            d = math.hypot(l.mid[0] - x, l.mid[1] - y)
+            if d < bd:
+                best, bd = l, d
+        return best
+
     def block_edge(self, u: int, v: int, tics: int = 35 * 20) -> None:
         self.blocked_edges[(u, v)] = self.tic + tics
 
@@ -158,9 +171,10 @@ class LevelModel:
                 mx, my = l.mid
                 d = math.hypot(mx - x, my - y)
                 if d < DOOR_RANGE and self.vis.los(x, y, mx, my):
-                    # approach from the side the player is on
                     nx, ny = l.front_normal
-                    sgn = 1 if (x - mx) * nx + (y - my) * ny >= 0 else -1
+                    if (x - mx) * nx + (y - my) * ny <= 0:
+                        continue   # this face is used from the other side
+                    sgn = 1
                     if exclude and f"d{li}" in exclude:
                         break
                     if self.plan(x, y, mx + sgn * nx * 40, my + sgn * ny * 40) is None:
