@@ -63,6 +63,16 @@ See `runs/report.md` for the numbers.
 - **Jev versus Laya latency:** Jev is about 120 ms and flat across 1, 3 and 6 questions. Laya typed-decisions on Apple MPS takes about 145 ms per question (147/432/758 ms). Laya encodes the state once per question, so in realtime mode Laya answers are often stale on this host. A CUDA host is the fix; benchmark it with `bench-backend`.
 - **Confidence isn't comparable across backends.** Laya's choice `confidence` is entropy-based (0.01 for a 56/44 split), and Jev's noul answers have none. The gate uses our own max-probability after temperature calibration.
 
+## Deviations from PLAN.md (and why)
+- **Repo layout:** the package lives at the repo root (`src/s1doom`), not in an `s1doom/` subfolder.
+- **Jev transport:** raw HTTP instead of `typesafe-sdk`. The wire format is small and documented, and this avoids SDK drift.
+- **Extra modes:** `scan` (turn in place) for the no-movement arena and `advance` for the corridor. Question options are scenario-dependent (`configs/scenarios/*.yaml: modes`).
+- **Confidence gate:** it uses our own max-probability, and the floor for choice/score scales with the option count: `1/k + 0.3·(1−1/k)`. Nouls use 0.55. A flat 0.55 would be near-impossible for an 8-option `mode` and trivial for a noul.
+- **Calibration labels:** outcome labels by default (`in_danger` vs damage actually taken). Heuristic-agreement labels are opt-in (`--labels agreement`) because they reward imitating the heuristic.
+- **Map model:** also parses **UDMF** (ViZDoom's scenario WADs). The nav graph uses Doom box-touch physics, directed edges and front-side-only switch and door use.
+- **Controller extras:** opportunistic fire at aligned monsters (`--no-opportunistic-fire` ablation), hold fire at far range when ammo is scarce, hold fire near barrels, and a blacklist for unreachable pickups and doors.
+- **Demo recording:** demos are recorded to a short temp path and moved into `runs/`, because ViZDoom 1.3.1 hangs in `new_episode()` on demo paths longer than about 112 characters.
+
 ## Not done / needs outside input
 - `doom1.wad` (E1M1) isn't shipped. Drop it in `./wads/` and run `eval --scenario doom1_e1m1`; the run is skipped cleanly if the file is absent.
 - No CUDA Laya host was available, so the Framework and Jetson configs are untested templates.
