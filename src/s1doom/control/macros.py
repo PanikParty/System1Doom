@@ -30,8 +30,22 @@ def fight(c: "Controller", p: Percept, t: Entity | None) -> tuple[dict, bool]:
     return act, False
 
 
+def barrel_risk(p: Percept, t: Entity) -> bool:
+    """A barrel in the line of fire, or next to a close target, would blow up in our face."""
+    for b in p.entities:
+        if b.kind != "barrel" or not b.visible:
+            continue
+        if b.distance < t.distance + 32 and abs(b.bearing - t.bearing) < 8 and b.distance < 400:
+            return True
+        if math.hypot(b.x - t.x, b.y - t.y) < 96 and b.distance < 256:
+            return True
+    return False
+
+
 def worth_shot(p: Percept, t: Entity) -> bool:
     """Hitscan spread makes far shots mostly misses; hold fire at far range when ammo is scarce."""
+    if barrel_risk(p, t):
+        return False
     if t.range_bucket != "far":
         return True
     return p.ammo >= 50 or p.weapon in (5, 6, 7)

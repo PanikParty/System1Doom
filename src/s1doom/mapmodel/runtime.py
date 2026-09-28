@@ -42,6 +42,10 @@ class LevelModel:
         for li in self.triggers.get(sector, []):
             l = self.m.lines[li]
             d = math.hypot(l.mid[0] - x, l.mid[1] - y)
+            nx, ny = l.front_normal
+            # Doom only activates a line used from its FRONT side (P_UseLines)
+            if (x - l.mid[0]) * nx + (y - l.mid[1]) * ny <= 0:
+                continue
             if d < bd:
                 best, bd = l, d
         return best
