@@ -90,8 +90,8 @@ Use this if Path A can't see the GPU. SemIf's llama.cpp backend is **CPU-only** 
 cd ~/semif/SemIf-OpenJev
 uv venv --python 3.11 .venv-cpu && . .venv-cpu/bin/activate
 uv pip install -e '.[llamacpp]'          # builds llama-cpp-python: needs cmake + a C/C++ compiler
-# GGUF recommended by SemIf's README (~3 GB):
-huggingface-cli download bartowski/Qwen_Qwen3.5-4B-GGUF Qwen_Qwen3.5-4B-Q4_K_M.gguf --local-dir ~/semif/gguf
+# GGUF recommended by SemIf's README (~3 GB); huggingface-hub >= 1.0 names its CLI `hf`:
+hf download bartowski/Qwen_Qwen3.5-4B-GGUF Qwen_Qwen3.5-4B-Q4_K_M.gguf --local-dir ~/semif/gguf
 
 set -a; . ~/semif/semif-serve.env; set +a
 python ~/semif/semif_serve.py --backend llamacpp --gguf ~/semif/gguf/Qwen_Qwen3.5-4B-Q4_K_M.gguf \
