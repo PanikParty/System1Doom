@@ -7,6 +7,9 @@ ours, and the harness talks to it over HTTP like laya-serve:
     cd ~/Research/SemIf-OpenJev
     .venv/bin/python ~/Research/System1Doom/scripts/semif_serve.py --backend mlx --port 8010
 
+Framework Desktop / Linux GPU box: see docs/semif-framework.md. Set SEMIF_API_KEY to require
+`Authorization: Bearer <key>` (same scheme as laya-serve).
+
 Mapping: choice -> options (criteria keys); noul -> yes/no options; score -> one option per
 level (score = probability-weighted level index). All questions share the state, so they're
 scored with SemIf's shared-prefix mode (one prefill, one suffix per question).
@@ -15,7 +18,9 @@ Stdlib only, so it adds no dependencies to SemIf's environment.
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
+import os
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
@@ -62,13 +67,21 @@ def to_answer(q: dict, res: dict) -> dict:
 
 
 class Scorer:
-    def __init__(self, backend: str, model: str, revision: str, bits: int | None, device: str) -> None:
+    def __init__(self, backend: str, model: str, revision: str, bits: int | None, device: str,
+                 gguf: str | None = None, threads: int | None = None) -> None:
         self.backend = backend
         self.lock = Lock()
         if backend == "mlx":
             from semif_phase1 import mlx_backend as B
 
             self.model, self.tok, self.meta = B.load_model(model, revision, bits)
+            self._shared, self._direct = B.score_shared, B.score
+        elif backend == "llamacpp":
+            # SemIf's llama.cpp path is CPU-only (n_gpu_layers=0 upstream); needs a local GGUF
+            from semif_phase1 import llamacpp_backend as B
+
+            self.model, self.tok, self.meta = B.load_model(model, revision, gguf, threads=threads,
+                                                           context_tokens=4096)
             self._shared, self._direct = B.score_shared, B.score
         else:
             from semif_phase1.core import load_causal_model
@@ -92,7 +105,7 @@ class Scorer:
                 "usage": {"input_tokens": sum(r["input_tokens"] for r in results), "output_tokens": 0}}
 
 
-def make_handler(scorer: Scorer):
+def make_handler(scorer: Scorer, api_key: str | None = None):
     class H(BaseHTTPRequestHandler):
         def _send(self, code: int, body: dict, extra: dict | None = None) -> None:
             data = json.dumps(body).encode()
@@ -113,6 +126,8 @@ def make_handler(scorer: Scorer):
         def do_POST(self):
             if self.path != "/v1/systemone":
                 return self._send(404, {"detail": "not found"})
+            if api_key and not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {api_key}"):
+                return self._send(401, {"detail": "missing or invalid bearer token"})
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
                 t0 = time.perf_counter()
@@ -130,17 +145,24 @@ def make_handler(scorer: Scorer):
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--backend", choices=["mlx", "torch"], default="mlx")
+    ap.add_argument("--backend", choices=["mlx", "torch", "llamacpp"], default="mlx")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--revision", default=DEFAULT_REVISION)
     ap.add_argument("--mlx-bits", type=int, default=None, help="quantize MLX weights (e.g. 4 or 8)")
-    ap.add_argument("--device", default="auto", help="torch backend device: cuda | mps | cpu")
+    ap.add_argument("--device", default="auto", help="torch backend device: cuda | mps | cpu "
+                    "(ROCm builds of torch expose AMD GPUs as cuda)")
+    ap.add_argument("--gguf", default=None, help="llamacpp backend: path to a local GGUF checkpoint")
+    ap.add_argument("--threads", type=int, default=None, help="llamacpp backend: CPU threads")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8010)
     a = ap.parse_args()
-    scorer = Scorer(a.backend, a.model, a.revision, a.mlx_bits, a.device)
-    print(f"{scorer.name} ready on http://{a.host}:{a.port}/v1/systemone", flush=True)
-    ThreadingHTTPServer((a.host, a.port), make_handler(scorer)).serve_forever()
+    api_key = os.environ.get("SEMIF_API_KEY") or None
+    if a.host not in ("127.0.0.1", "localhost") and not api_key:
+        print("warning: listening on a network interface without SEMIF_API_KEY set", flush=True)
+    scorer = Scorer(a.backend, a.model, a.revision, a.mlx_bits, a.device, a.gguf, a.threads)
+    print(f"{scorer.name} ready on http://{a.host}:{a.port}/v1/systemone"
+          f" (auth {'on' if api_key else 'off'})", flush=True)
+    ThreadingHTTPServer((a.host, a.port), make_handler(scorer, api_key)).serve_forever()
 
 
 if __name__ == "__main__":

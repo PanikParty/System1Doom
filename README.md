@@ -48,6 +48,8 @@ cd ~/Research/SemIf-OpenJev && uv venv --python 3.11 .venv && uv pip install -p 
 # on a CUDA box (e.g. a 3090): --backend torch --device cuda --host 0.0.0.0, then set url in configs/backends/semif.yaml
 uv run s1doom play --scenario freedoom2_map01 --backend semif      # from this repo
 ```
+**Deploying on the Framework Desktop (or any Linux GPU box):** see [`docs/semif-framework.md`](docs/semif-framework.md). It covers the ROCm GPU path, a CPU llama.cpp fallback, the API key, a systemd unit, a smoke test, the benchmark and the eval commands. The Mac side uses `--backend semif-framework`.
+
 Mapping: choice → options, noul → yes/no options, score → one option per level (score = probability-weighted level). All questions share one state, so they're scored with SemIf's shared-prefix mode. On an M-series Mac with MLX BF16 it takes ~1.3 s for one question and ~1.8 s for three (p50), so use turn mode.
 
 ## What's in a decision

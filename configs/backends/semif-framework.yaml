@@ -1,0 +1,7 @@
+# SemIf served from the Framework Desktop (docs/semif-framework.md).
+# Key: export SEMIF_API_KEY (or: set -a; . ./semif-serve.env; set +a) -- *.env is gitignored.
+kind: systemone-http
+name: semif-framework
+url: http://framework.local:8010
+key_env: SEMIF_API_KEY
+timeout_s: 30

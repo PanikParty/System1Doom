@@ -68,3 +68,43 @@ def test_semif_server_mapping_roundtrip():
     res = normalize_response(qs, body, 1.0)
     assert res.answers["mode"].value == "explore" and res.answers["danger"].value == 0.7
     assert res.answers["aggr"].value == pytest.approx(1.7)
+
+
+def test_semif_server_bearer_auth():
+    """semif_serve rejects requests without the bearer key when SEMIF_API_KEY is set."""
+    import importlib.util
+    import json as _json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("semif_serve", Path(__file__).parents[1] / "scripts" / "semif_serve.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+
+    class Fake:
+        name = "fake"
+
+        def predict(self, state, questions):
+            return {"model": "fake", "answers": {}, "usage": {}}
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), m.make_handler(Fake(), api_key="s3cret"))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/v1/systemone"
+    body = _json.dumps({"state": {}, "questions": {}}).encode()
+
+    def post(headers):
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json", **headers})
+        try:
+            return urllib.request.urlopen(req).status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    try:
+        assert post({}) == 401
+        assert post({"Authorization": "Bearer wrong"}) == 401
+        assert post({"Authorization": "Bearer s3cret"}) == 200
+    finally:
+        srv.shutdown()
