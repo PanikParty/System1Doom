@@ -143,7 +143,13 @@ def build_report(dirs: list[str] | None, out: Path) -> Path:
     fig_dir.mkdir(exist_ok=True)
     L = [f"# s1doom evaluation report", "", f"Generated {time.strftime('%Y-%m-%d %H:%M')} from "
          f"{len(evals)} eval matrices. Mean ± 95% CI over episodes. Turn mode unless tagged.", ""]
-    tags = sorted({r.get("tag", "") for r in rows})
+    def tag_order(t: str) -> tuple:
+        for i, pre in enumerate(("m1", "m2", "m3", "nofallback", "ablation")):
+            if t.startswith(pre):
+                return (i, t)
+        return (9, t)
+
+    tags = sorted({r.get("tag", "") for r in rows}, key=tag_order)
     for tag in tags:
         tr = [r for r in rows if r.get("tag", "") == tag]
         L += [f"## {tag or 'untagged'}", ""]

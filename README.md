@@ -55,8 +55,21 @@ src/s1doom/telemetry   JSONL, metrics, overlay, summary, report
 src/s1doom/agent.py    episode loop (turn + realtime)      src/s1doom/cli.py  typer CLI
 ```
 
-## Findings so far
-See `runs/report.md` for the numbers.
+## Results (turn mode, seed 1234, full tables and charts in `runs/report.md`)
+
+| milestone gate (PLAN §4) | heuristic | random | **Jev** | **Laya** (typed-decisions, MPS) |
+|---|---|---|---|---|
+| M1 defend_the_center kills (20 ep), gate: ≥90% of heuristic, fallback <25% | 20.6 ± 1.1 | 20.6 ± 0.7 | **22.45 ± 1.2** ✅ (fallback 1%) | **22.5 ± 0.8** ✅ (fallback 12%) |
+| M2 deadly_corridor vest reached (20 ep, skill 5), gate: ≥50% | 70% | 15% | **90%** ✅ | LAYA_DC |
+| M2 health_gathering_supreme survival tics (20 ep), gate: ≥ heuristic −10% | 2020 | 1236 | **1859** ✅ (−8%) | LAYA_HG |
+| M2 my_way_home success (20 ep) | 100% | 95% | 100% | LAYA_MWH |
+| M3 Freedoom2 MAP01 exit (10 seeds, skill 2), gates: heuristic ≥60%, Jev ≥40% | **100%** ✅ | – | **70%** ✅ | 100% (fallback 71%) |
+| MAP01 with **no fallback** (5 seeds): the model alone | – | – | **80%** | LAYA_NOFB |
+| Latency p50 / p95 per decision | – | – | 116–130 / ~170 ms | 232–449 ms |
+
+Realtime mode (35 Hz, ASYNC_PLAYER) runs without frame stalls (0 overruns, p99 per-tic work 8 ms). With Laya on MPS, answers arrive with 230–480 ms staleness, and those older than 400 ms are dropped.
+
+## Findings
 - **The bearing and turn sign conventions were verified on the engine and are unit-tested.** The positive turn delta turns right, so `turn = -bearing`.
 - **defend_the_center is dominated by the controller.** With aligned-only firing, even `random` roughly matches the heuristic (~20 kills out of 26 pistol rounds), so it's a weak test of decision quality. Use `--no-opportunistic-fire` and the harder scenarios to tell backends apart.
 - **Full-level autoplay needed Doom physics in the nav graph.** Three fixes were required: nodes offset off the linedef grid; floor and ceiling taken over every sector the 32-unit box touches (Freedoom2 MAP01's exit room is behind an 8-unit crack with floor −480); and remote-door switches planned as part of the path.
