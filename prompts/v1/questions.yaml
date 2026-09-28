@@ -1,0 +1,56 @@
+# Prompt set v1. Every log line records `prompt_version`. Do not inline these in Python.
+version: v1
+
+rules: >-
+  bearing_deg: 0 = straight ahead, positive = LEFT, negative = RIGHT.
+  aligned=true means the crosshair is on that monster, so shooting now hits it.
+  Only fight when a monster is listed with visible=true. Retreat when health is low and a
+  threat is close. Pickups marked worth_it=true are worth a detour. When no monster is
+  visible, explore or head to the exit if it is known.
+
+questions:
+  mode:
+    type: choice
+    instructions: What should the player do for the next half second?
+    options:
+      fight: Attack a visible monster. Turn toward it and shoot once aligned.
+      scan: No monster in view. Turn in place to look for monsters.
+      retreat: Back away from the monsters while still facing them, because health is low or the threat is too high.
+      grab_pickup: Walk to a nearby pickup that is worth it.
+      explore: Walk toward unexplored parts of the map.
+      go_to_exit: Walk to the known level exit and use it.
+      open_door: Walk to the nearby closed door and open it.
+      get_key: Go and pick up a visible key that a locked door needs.
+      advance: Move forward toward the goal.
+
+  target:
+    type: choice
+    instructions: Which monster should the player attack now? Prefer monsters that are aligned, close and dangerous.
+    option_template: "{kind}, {range} range, {side} (bearing {bearing_deg}), aligned={aligned}, threat={threat}"
+
+  pickup:
+    type: choice
+    instructions: Which pickup should the player collect next?
+    option_template: "{kind}, {range} range, {side}, worth_it={worth_it}"
+    none_option: Do not collect any pickup now.
+
+  in_danger:
+    type: noul
+    instructions: Will the player take significant damage in the next second if it keeps doing what it is doing?
+    criteria:
+      "true": A monster is close and attacking, or health is low while under fire.
+      "false": No threats nearby, or all threats are far away or being handled safely.
+
+  aggression:
+    type: score
+    instructions: How aggressively should the player fight right now?
+    criteria:
+      - flee, avoid all combat
+      - cautious, keep distance and shoot from range
+      - engage, fight normally and strafe
+      - all-in, charge and shoot continuously
+
+  weapon:
+    type: choice
+    instructions: Which weapon should the player use against the current threats?
+    option_template: "{name} ({ammo} ammo)"

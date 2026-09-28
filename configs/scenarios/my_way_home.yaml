@@ -1,0 +1,8 @@
+name: my_way_home
+cfg: my_way_home.cfg
+buttons: [turn, forward, strafe]
+modes: [explore, grab_pickup]
+objective: reach_goal
+success: not_dead_before_timeout
+mapmodel: true
+notes: Find the green armor somewhere in a maze of rooms.

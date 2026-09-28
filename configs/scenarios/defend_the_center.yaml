@@ -1,0 +1,7 @@
+name: defend_the_center
+cfg: defend_the_center.cfg
+buttons: [turn, attack]          # scenario semantics: turn in place and shoot
+modes: [fight, scan]
+objective: survive
+success: survive
+notes: Monsters approach from all sides; 26 pistol rounds; episode ends on death (timeout 2100 tics).

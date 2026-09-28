@@ -1,0 +1,7 @@
+name: health_gathering_supreme
+cfg: health_gathering_supreme.cfg
+buttons: [turn, forward]
+modes: [grab_pickup, explore]
+objective: gather
+success: survive
+notes: Acid floor drains health; collect medkits, avoid poison vials. Metric = survival tics.

@@ -1,0 +1,3 @@
+kind: laya-http
+url: http://framework.local:8000
+model: typed-decisions

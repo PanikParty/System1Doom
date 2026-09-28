@@ -1,0 +1,10 @@
+name: freedoom2_map01
+wad: freedoom2
+map: MAP01
+skill: 2
+buttons: all
+modes: [fight, retreat, grab_pickup, explore, go_to_exit, open_door, get_key]
+objective: reach_exit
+success: exit
+episode_timeout: 21000           # 10 minutes of game time
+mapmodel: true

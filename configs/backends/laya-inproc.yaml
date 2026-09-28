@@ -1,0 +1,4 @@
+kind: laya-inproc
+repo: convaiinnovations/laya
+subfolder: typed-decisions    # base `laya` scored 0.36 vs 0.77 on typed decisions
+device: null                  # auto (mps on Apple silicon)

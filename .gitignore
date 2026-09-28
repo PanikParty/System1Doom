@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+runs/
+cache/
+wads/
+*.wad
+.env
+*.key
+.pytest_cache/
+_vizdoom.ini

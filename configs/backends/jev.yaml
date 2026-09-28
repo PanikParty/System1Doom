@@ -1,0 +1,4 @@
+kind: jev
+model: jev-latest
+# key: TYPESAFE_API_KEY env, or file at TYPESAFE_API_KEY_FILE (default ./Jev.key, gitignored)
+timeout_s: 10
