@@ -32,7 +32,7 @@ def test_random_episode_writes_jsonl_and_lmp(tmp_path):
     finally:
         agent.close()
     assert eps[0].survival_tics > 0 and eps[0].decisions > 0
-    d = agent.run_dir
+    d = agent.run_dir  # demo is finalized on close()
     assert (d / "ep_0.lmp").exists() and (d / "summary.json").exists()
     rows = [json.loads(l) for l in (d / "ep_0" / "calls.jsonl").read_text().splitlines()]
     dec = [r for r in rows if r["kind"] == "decision"]

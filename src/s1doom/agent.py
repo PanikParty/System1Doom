@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -124,6 +126,7 @@ class Agent:
                                      opportunistic_fire=cfg.opportunistic_fire)
         self.breaker = CircuitBreaker()
         self.calls_made = 0
+        self._pending_demos: list[tuple[Path, Path]] = []
         self.overlay = None
         if cfg.overlay or cfg.save_frames_every:
             from s1doom.telemetry.overlay import Overlay
@@ -173,8 +176,14 @@ class Agent:
     async def run_episode(self, ep: int) -> EpisodeMetrics:
         cfg = self.cfg
         seed = cfg.seed + ep
-        rec = str(self.run_dir / f"ep_{ep}.lmp") if cfg.record else None
+        # ViZDoom hangs in new_episode() when the demo path is ~>112 chars (observed 1.3.1):
+        # record to a short temp path and move it into the run dir afterwards.
+        rec_tmp = rec = None
+        if cfg.record:
+            rec_tmp = Path(tempfile.mkdtemp(prefix="s1d")) / "ep.lmp"
+            rec = str(rec_tmp)
         obs = self.env.reset(rec, seed=seed)
+        self._flush_demos()
         self.perception.reset()
         self.policy.reset()
         self.scheduler.reset()
@@ -356,6 +365,8 @@ class Agent:
         m.mode_counts = mode_counts
         if self.level is not None:
             m.explored = round(self.level.explore.seen_fraction(), 3)
+        if rec_tmp is not None:
+            self._pending_demos.append((rec_tmp, self.run_dir / f"ep_{ep}.lmp"))
         log.write({"kind": "episode_end", **m.to_dict()})
         log.close()
         return m
@@ -374,8 +385,20 @@ class Agent:
             await self.backend.aclose()
         return out
 
+    def _flush_demos(self) -> None:
+        """ViZDoom finalizes a demo on the next new_episode() or close()."""
+        keep = []
+        for tmp, dest in self._pending_demos:
+            if tmp.exists() and tmp.stat().st_size > 0:
+                shutil.move(str(tmp), dest)
+                shutil.rmtree(tmp.parent, ignore_errors=True)
+            else:
+                keep.append((tmp, dest))
+        self._pending_demos = keep
+
     def close(self) -> None:
         self.env.close()
+        self._flush_demos()
         if self.overlay:
             self.overlay.close()
 

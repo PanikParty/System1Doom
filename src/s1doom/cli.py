@@ -14,6 +14,11 @@ from s1doom.agent import RUNS_DIR, Agent, RunConfig
 from s1doom.backends.factory import make_backend
 from s1doom.decision.policy import PolicyConfig
 
+import faulthandler
+import signal
+
+faulthandler.register(signal.SIGUSR1)  # `kill -USR1 <pid>` dumps all thread stacks to stderr
+
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 console = Console()
 
