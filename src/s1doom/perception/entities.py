@@ -62,6 +62,8 @@ def entities_from_obs(obs: Obs, omniscient: bool = False) -> list[Entity]:
     px, py, ang = obs.v("POSITION_X"), obs.v("POSITION_Y"), obs.v("ANGLE")
     out: list[Entity] = []
     if omniscient:
+        # extra information (positions of everything), but never lie about line of sight
+        labelled = {lab.object_id: lab for lab in obs.labels}
         for o in obs.objects:
             kind = C.kind_of(o.name, getattr(o, "category", None))
             if kind == "other" and o.name not in C.HAZARDS:
@@ -70,7 +72,12 @@ def entities_from_obs(obs: Obs, omniscient: bool = False) -> list[Entity]:
                        last_seen_tic=obs.tic, first_seen_tic=obs.tic,
                        vx=o.velocity_x, vy=o.velocity_y)
             e.refresh(px, py, ang)
-            e.aligned = abs(e.bearing) < aim_tol(e.distance)
+            lab = labelled.get(o.id)
+            e.visible = lab is not None
+            if lab is not None:
+                e.screen_x_frac = (lab.x + lab.width / 2) / obs.screen_w
+                e.screen_w_frac = lab.width / obs.screen_w
+            e.aligned = e.visible and _aligned(e.bearing, e.distance, e.screen_x_frac, e.screen_w_frac)
             out.append(e)
         return out
     for lab in obs.labels:

@@ -35,6 +35,9 @@ class Perception:
         events: set[str] = set()
         seen_ids = set()
         for e in seen:
+            if not e.visible:           # omniscient extras: known, not seen
+                self.mem[e.id] = e
+                continue
             seen_ids.add(e.id)
             old = self.mem.get(e.id)
             if old is None:
