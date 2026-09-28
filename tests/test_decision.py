@@ -164,3 +164,13 @@ def test_weapon_ammo_uses_slot_indexed_vars():
     bs = build_state(p, StateContext())
     q, _ = build_questions(PS, bs, {"weapon"}, ["fight"])
     assert "50" in q["weapon"]["criteria"]["pistol"] and "melee" in q["weapon"]["criteria"]["fist"]
+
+
+def test_hit_by_unseen_makes_scan_legal_and_preferred():
+    p = percept()
+    p.unseen_attack = True
+    bs = build_state(p, StateContext())
+    modes = legal_modes(bs, ["fight", "explore", "open_door"], True)
+    assert "scan" in modes
+    q, _ = build_questions(PS, bs, {"mode"}, modes)
+    assert answer_all(bs.state, q)["mode"].value == "scan"

@@ -1,12 +1,13 @@
 # Prompt set v1. Every log line records `prompt_version`. Do not inline these in Python.
-version: v1.1
+version: v1.2
 
 rules: >-
   bearing_deg: 0 = straight ahead, positive = LEFT, negative = RIGHT.
   aligned=true means the crosshair is on that monster, so shooting now hits it.
   Only fight when a monster is listed with visible=true. Retreat when health is low and a
   threat is close. Pickups marked worth_it=true are worth a detour. When no monster is
-  visible, explore or head to the exit if it is known.
+  visible, explore or head to the exit if it is known. hit_by_unseen=true means something
+  out of view is shooting the player: scan to find it.
 
 questions:
   mode:
@@ -15,7 +16,7 @@ questions:
     alt_instructions: Given the player's health, threats and goal, which single tactic is best right now?
     options:
       fight: Attack a visible monster. Turn toward it and shoot once aligned.
-      scan: No monster in view. Turn in place to look for monsters.
+      scan: No monster in view. Turn in place to look for monsters, e.g. to find an unseen attacker.
       retreat: Back away from the monsters while still facing them, because health is low or the threat is too high.
       grab_pickup: Walk to a nearby pickup that is worth it.
       explore: Walk toward unexplored parts of the map.

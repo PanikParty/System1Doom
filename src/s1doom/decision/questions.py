@@ -47,6 +47,8 @@ def legal_modes(bs: BuiltState, allowed: list[str], has_level: bool) -> list[str
             legal.append(m)
         elif m == "advance":
             legal.append(m)
+    if sit.get("hit_by_unseen") and not vis and "scan" not in legal and "fight" in allowed:
+        legal.append("scan")   # look for the attacker
     return legal or [allowed[0]]
 
 
