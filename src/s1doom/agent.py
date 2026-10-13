@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -36,6 +37,19 @@ RUNS_DIR = Path(__file__).resolve().parents[2] / "runs"
 TRIGGER_EVENTS = {"new_monster", "damage", "health_threshold", "kill", "key_seen",
                   "target_lost", "macro_done", "stuck", "teleported"}
 MIN_TRIGGER_GAP = 3
+
+
+def _git_version() -> str | None:
+    """Commit of the code that produced a run, with '+dirty' for uncommitted changes."""
+    root = Path(__file__).resolve().parents[2]
+    try:
+        sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=root, capture_output=True,
+                             text=True, timeout=5).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=root,
+                               capture_output=True, text=True, timeout=5).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (sha + ("+dirty" if dirty else "")) or None
 
 
 @dataclass
@@ -139,6 +153,7 @@ class Agent:
             "decision_tics": self.decision_tics, "opportunistic_fire": cfg.opportunistic_fire,
             "prompt_version": self.prompts.version,
             "policy": cfg.policy.__dict__, "calibration": cfg.calibration, "tokenizer": tokenizer_name(),
+            "git": _git_version(),
         }, indent=2, default=str))
 
     # ------------------------------------------------------------------

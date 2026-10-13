@@ -10,7 +10,8 @@ RUNS_DIR = Path(__file__).resolve().parents[3] / "runs"
 
 # Fixed entity -> colour (validated categorical slots 1-4; colour follows the backend, never rank).
 BACKEND_COLORS = {"heuristic": "#2a78d6", "random": "#eb6834", "jev": "#1baf7a", "laya-inproc": "#eda100",
-                  "laya-http": "#eda100", "semif": "#e87ba4"}
+                  "laya-http": "#eda100", "semif": "#e87ba4", "clef-flash": "#4a3aa7",
+                  "clef": "#9a8ae0"}
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"
 
 

@@ -21,7 +21,9 @@ slower than Cloudflare's H200 benchmark numbers (209/39 ms median for Clef/Flash
 """
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 import sys
 import time
 from pathlib import Path
@@ -33,14 +35,20 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("serve_clef")
 
 _STATE: dict = {}
+# HF revisions checked 2026-10-12; pinned so runs are reproducible (override with --revision)
+REVISIONS = {
+    "Cloudflare/clef": "0b331204bb13fbd2ca93a64df1956f5b55478ce5",
+    "Cloudflare/clef-flash": "8b2e5fd17c09fd49bc2880b805d5323ec7ff4ff3",
+}
 
 
-def load(repo: str, device: str | None, dtype: str) -> None:
+def load(repo: str, device: str | None, dtype: str, revision: str | None = None) -> None:
     import torch
     from huggingface_hub import snapshot_download
 
     log.info("downloading/locating snapshot for %s ...", repo)
-    path = snapshot_download(repo)
+    revision = revision or REVISIONS.get(repo)
+    path = snapshot_download(repo, revision=revision)
     if path not in sys.path:
         sys.path.insert(0, path)
     from joint_schema_model import load_release_model  # noqa: E402  (ships inside the HF snapshot)
@@ -56,9 +64,11 @@ def load(repo: str, device: str | None, dtype: str) -> None:
     _STATE["model"] = model
     _STATE["processor"] = processor
     _STATE["repo"] = repo
+    _STATE["revision"] = revision
+    _STATE["device"] = device
 
 
-def make_app():
+def make_app(api_key: str | None = None):
     import torch
 
     from joint_schema_model import systemone  # noqa: E402
@@ -67,10 +77,13 @@ def make_app():
 
     @app.get("/health")
     def health():
-        return {"ok": True, "model": _STATE.get("repo")}
+        return {"ok": True, "model": _STATE.get("repo"), "revision": _STATE.get("revision"),
+                "device": _STATE.get("device"), "torch": torch.__version__}
 
     @app.post("/v1/systemone")
     async def v1_systemone(req: Request):
+        if api_key and not hmac.compare_digest(req.headers.get("authorization", ""), f"Bearer {api_key}"):
+            return JSONResponse({"error": "missing or invalid bearer token"}, status_code=401)
         body = await req.json()
         t0 = time.perf_counter()
         try:
@@ -87,12 +100,16 @@ def make_app():
 
 
 def main(repo: str = "Cloudflare/clef-flash", port: int = 8100, device: str | None = None,
-         dtype: str = "bfloat16") -> None:
+         dtype: str = "bfloat16", revision: str | None = None, host: str = "0.0.0.0") -> None:
+    """Set CLEF_API_KEY to require `Authorization: Bearer <key>` (same scheme as laya-serve)."""
     import uvicorn
 
-    load(repo, device, dtype)
-    app = make_app()
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    api_key = os.environ.get("CLEF_API_KEY") or None
+    if host not in ("127.0.0.1", "localhost") and not api_key:
+        log.warning("listening on %s without CLEF_API_KEY set", host)
+    load(repo, device, dtype, revision)
+    app = make_app(api_key)
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

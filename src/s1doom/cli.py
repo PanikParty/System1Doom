@@ -271,11 +271,11 @@ def serve_laya(port: int = 8000):
 
 @app.command("serve-clef")
 def serve_clef(repo: str = "Cloudflare/clef-flash", port: int = 8100, device: str | None = None,
-               dtype: str = "bfloat16"):
+               dtype: str = "bfloat16", revision: str | None = None):
     """Run Cloudflare Clef/Clef-Flash locally (Jev-compatible /v1/systemone).
 
-    Clef-Flash (9B) fits this host; Clef (27B, ~54GB bf16) does not (32GB RAM, no
-    discrete GPU). Needs `uv sync --extra clef` first.
+    Needs torch>=2.11 for the host's GPU (ROCm on the Framework; see README "Clef") and
+    `uv sync --extra clef`. Set CLEF_API_KEY to require a bearer token.
     """
     import sys
     from pathlib import Path
@@ -283,7 +283,7 @@ def serve_clef(repo: str = "Cloudflare/clef-flash", port: int = 8100, device: st
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
     from serve_clef import main as _main
 
-    _main(repo=repo, port=port, device=device, dtype=dtype)
+    _main(repo=repo, port=port, device=device, dtype=dtype, revision=revision)
 
 
 if __name__ == "__main__":

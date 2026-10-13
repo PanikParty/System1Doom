@@ -1,7 +1,9 @@
 # Clef-Flash (huggingface.co/Cloudflare/clef-flash): 9B joint-schema-head decision model,
-# served locally by scripts/serve_clef.py (loads the HF weights in-process).
+# served by scripts/serve_clef.py (ROCm torch venv ~/clef/.venv on the Framework, :8100).
+# Key: CLEF_API_KEY (set -a; . ./clef-serve.env; set +a) -- *.env is gitignored.
 kind: systemone-http
 name: clef-flash
 url: http://127.0.0.1:8100
 model: clef-flash
-timeout_s: 20
+key_env: CLEF_API_KEY
+timeout_s: 30
