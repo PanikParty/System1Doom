@@ -120,6 +120,92 @@ src/s1doom/agent.py    episode loop (turn + realtime)      src/s1doom/cli.py  ty
 
 Realtime mode (35 Hz, ASYNC_PLAYER) runs without frame stalls (0 overruns, p99 per-tic work 8 ms). With Laya on MPS, answers arrive with 230–480 ms staleness, and those older than 400 ms are dropped.
 
+## Model Performance Summary
+
+All figures are **turn mode** (seed 1234) unless noted. Clef-Flash numbers come from the two runs in `runs/` (n=1 episode each); all others from the 20-episode M1–M3 eval campaign. Full tables and per-episode charts: `uv run s1doom report`.
+
+### At-a-glance
+
+| Model | Size / host | `defend_the_center` kills | `deadly_corridor` vest | `MAP01` exit | Fallback | Latency p50 |
+|---|---|---|---|---|---|---|
+| **heuristic** | Python / in-loop | 20.6 ± 1.1 (n=20) | 70% (n=20) | 100% (n=10) | — | — |
+| **random** | Python / in-loop | 20.6 ± 0.7 (n=20) | 15% (n=20) | — | disabled | — |
+| **Jev** | hosted API | 22.45 ± 1.2 (n=20) | 90% (n=20) | 70% / 100% † (n=10) | 1% | ~120 ms |
+| **Laya** | 7B, MPS in-proc | 22.5 ± 0.8 (n=20) | 70% (n=20) | 100% (n=10) | 58–66% | ~290–450 ms |
+| **Clef-Flash** | 9B, CPU local | 7.0 (n=1 ‡) | — | — | **0%** | ~1.8 s § |
+| **SemIf** | 4B, MLX local | — | — | — | — | ~1.3–1.8 s ¶ |
+
+† 70% before v1.2 unseen-attacker fix; **10/10 (100%)** after. Laya at 100% is largely the fallback heuristic (71% fallback rate).  
+‡ Single-episode spot-check; not directly comparable to the 20-episode milestone averages.  
+§ CPU inference on Framework Desktop (gfx1151, no ROCm); Cloudflare's H200 baseline is 39 ms median for Clef-Flash.  
+¶ Measured on M-series Mac (MLX BF16); no `s1doom eval` run yet.
+
+---
+
+### Heuristic
+
+Pure-Python geometry oracle that reads the same serialized state the model backends see and applies hand-coded tactical rules: aim, advance, retreat, scan. It serves three roles: **baseline** (the target all models are gated against), **fallback source** (its answer substitutes whenever a model answer falls below the calibrated confidence floor), and **label source** (shadow answers logged alongside every model decision for agreement tracking).
+
+Key numbers: 20.6 kills on `defend_the_center`, 70% vest on `deadly_corridor`, 100% MAP01 exit rate (10 seeds), 2020 survival tics on `health_gathering_supreme`. Runs synchronously in the game loop — no measurable per-decision latency.
+
+---
+
+### Random
+
+Uniform draw over the legal option set for every typed question. Fallback is **disabled** — the random draw is applied verbatim, no confidence floor, so it is a clean ablation floor: any backend that can't beat random has learned nothing. On `defend_the_center` it roughly matches the heuristic (~20.6 kills) because opportunistic fire dominates that constrained arena, making it a weak test of decision quality. Performance collapses on navigation-heavy scenarios (15% vest, poor MAP01 completion).
+
+---
+
+### Jev
+
+TypeSafe's hosted System 1 model (`api.typesafe.ai/v1/systemone`). Answers typed choice/noul/score questions at **~120 ms flat** regardless of how many questions are batched (1, 3, or 6), making it the fastest and most consistent backend tested. The circuit breaker falls back to the heuristic after repeated 4xx/5xx and recovers when the API stabilises; `--max-calls` caps spend.
+
+Key numbers:
+- `defend_the_center`: **22.45 ± 1.2** kills (n=20), beats heuristic, **1% fallback** ✅
+- `deadly_corridor`: **90%** vest rate (n=20) ✅
+- `health_gathering_supreme`: **1859** survival tics (−8% vs heuristic) ✅
+- `my_way_home`: **100%** success (n=20) ✅
+- `MAP01`: **70%** exit pre-v1.2; **10/10** after the unseen-attacker fix; **80%** with no fallback (5 seeds)
+- `in_danger` accuracy: **90%** — the only backend whose confidence signal is informative enough to serve as an outcome label for calibration
+- Latency: 116–130 ms p50, ~170 ms p95
+
+The only backend to clear every M1–M3 milestone gate. The `in_danger` signal quality makes Jev the natural label source for fine-tuning Laya.
+
+---
+
+### Laya
+
+Open-weight TypeSafe decision model (HuggingFace `typed-decisions` checkpoint), served either in-process via MPS on Apple silicon (`laya-inproc`) or over HTTP from a `laya-serve` host. Encodes the state independently per question, so batching multiple questions multiplies latency (~145 ms × n on MPS).
+
+Key numbers:
+- `defend_the_center`: **22.5 ± 0.8** kills (n=20) — but at **58–66% fallback** (most decisions are the heuristic's) ✅
+- `deadly_corridor`: 70% vest ✅, `health_gathering_supreme`: 2020 tics ✅, `my_way_home`: 100% ✅ — all largely heuristic-driven
+- `MAP01`: 100% exit (10 seeds, 71% fallback); **0/1 without fallback** (timed out at 32% explored, degraded to ~5 s/decision on MPS after overnight use)
+- `in_danger` accuracy: **4%** — anti-informative; Laya's probability outputs are near-uniform, almost every answer falls below the confidence floor
+- Latency: 232–449 ms p50 per decision on MPS; degrades to ~5 s after extended use
+
+Laya's M2/M3 milestone numbers largely reflect the heuristic acting as fallback. A CUDA or ROCm host is required for meaningful latency and to re-run no-fallback evals; see `configs/backends/laya-framework.yaml` and the "Not done" section.
+
+---
+
+### Clef-Flash (Cloudflare)
+
+Open-weight 9B "joint schema head" decision model ([`Cloudflare/clef-flash`](https://huggingface.co/Cloudflare/clef), Apache-2.0). Uses the same `systemone-http` transport as Jev with no bespoke client code, served via `scripts/serve_clef.py` running the HF weights in-process. On this host (Framework Desktop, 32GB RAM, CPU only) Clef-Flash (~19GB bf16 resident) fits in memory; the 27B Clef does not.
+
+Key numbers (spot-check — 2 runs, n=1 episode each, seed 1234, `defend_the_center`):
+- Kills: **7**, damage taken: **0**, fallback: **0%**, decisions: **14**, heuristic agreement: **100%**
+- Latency: **~1.8 s p50** / ~2.2 s p95 (CPU bf16); Cloudflare's H200 baseline is 39 ms median
+
+The **0% fallback rate** is the headline result — every answer cleared the calibrated confidence floor, contrasting sharply with Laya's 58–66%. This suggests Clef-Flash produces well-separated probability mass on its preferred option where Laya produces near-uniform distributions. Latency is 15× slower than Jev due to CPU inference; ROCm torch for gfx1151 is the natural next step (see `configs/backends/clef.yaml` to point at a GPU-accelerated server). Full milestone evals (20-episode M1, M2 suites) are pending.
+
+---
+
+### SemIf
+
+Open-source Jev-wire-compatible decision model ([SemIf-OpenJev](https://github.com/TheoLeeCJ/SemIf-OpenJev), MIT) based on Qwen3.5-4B, using typed-option logits and shared-prefix decoding to amortise encoding across multiple questions sharing the same state. Pins its own torch/mlx dependency versions and runs in a separate venv; `scripts/semif_serve.py` exposes the Jev HTTP protocol.
+
+Key numbers: No `s1doom eval` run completed yet. Measured from direct testing on M-series Mac (MLX BF16): ~1.3 s for one question / ~1.8 s for three (p50). Smaller footprint than Clef-Flash (4B vs 9B). Pending: full eval suite, fallback rate measurement, and calibration on `defend_the_center` baseline.
+
 ## Findings
 - **The bearing and turn sign conventions were verified on the engine and are unit-tested.** The positive turn delta turns right, so `turn = -bearing`.
 - **defend_the_center is dominated by the controller.** With aligned-only firing, even `random` roughly matches the heuristic (~20 kills out of 26 pistol rounds), so it's a weak test of decision quality. Use `--no-opportunistic-fire` and the harder scenarios to tell backends apart.
