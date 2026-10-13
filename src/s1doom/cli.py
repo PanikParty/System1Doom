@@ -269,5 +269,22 @@ def serve_laya(port: int = 8000):
     main()
 
 
+@app.command("serve-clef")
+def serve_clef(repo: str = "Cloudflare/clef-flash", port: int = 8100, device: str | None = None,
+               dtype: str = "bfloat16"):
+    """Run Cloudflare Clef/Clef-Flash locally (Jev-compatible /v1/systemone).
+
+    Clef-Flash (9B) fits this host; Clef (27B, ~54GB bf16) does not (32GB RAM, no
+    discrete GPU). Needs `uv sync --extra clef` first.
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    from serve_clef import main as _main
+
+    _main(repo=repo, port=port, device=device, dtype=dtype)
+
+
 if __name__ == "__main__":
     app()

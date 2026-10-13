@@ -23,6 +23,16 @@ dependencies = [
 laya = [
     "laya[serve]>=0.3.21",
 ]
+clef = [
+    "torch>=2.4",
+    "torchvision",
+    "transformers>=5.8.1",
+    "pillow>=11.0",
+    "huggingface_hub>=0.25",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "accelerate>=1.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.11.9,<0.12.0"]

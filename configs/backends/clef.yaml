@@ -1,0 +1,9 @@
+# Clef (huggingface.co/Cloudflare/clef): 27B joint-schema-head decision model. ~54GB bf16 --
+# does not fit the Framework Desktop (32GB RAM, no discrete GPU); point url at a host that can
+# run scripts/serve_clef.py --repo Cloudflare/clef --device cuda (or an SGLang server per the
+# model card's cookbook).
+kind: systemone-http
+name: clef
+url: http://127.0.0.1:8100
+model: clef
+timeout_s: 30

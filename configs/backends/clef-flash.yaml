@@ -1,0 +1,7 @@
+# Clef-Flash (huggingface.co/Cloudflare/clef-flash): 9B joint-schema-head decision model,
+# served locally by scripts/serve_clef.py (loads the HF weights in-process).
+kind: systemone-http
+name: clef-flash
+url: http://127.0.0.1:8100
+model: clef-flash
+timeout_s: 20

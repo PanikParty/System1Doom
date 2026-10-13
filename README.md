@@ -34,8 +34,40 @@ Keys: Jev reads `TYPESAFE_API_KEY`, or a key file at `TYPESAFE_API_KEY_FILE` (de
 | `laya-http` | `laya-serve` `/v1/systemone` | The host is config (`configs/backends/laya-*.yaml`). |
 | `laya-inproc` | `laya.load(..., subfolder="typed-decisions")` | MPS on Apple silicon. |
 | `semif` | `scripts/semif_serve.py` → `/v1/systemone` | [SemIf](https://github.com/TheoLeeCJ/SemIf-OpenJev) (Qwen3.5-4B typed-option logits, MIT). Runs in SemIf's own venv (MLX on Apple Silicon, torch/CUDA elsewhere). |
+| `clef-flash` / `clef` | `scripts/serve_clef.py` → `/v1/systemone` | [Cloudflare Clef / Clef-Flash](https://huggingface.co/Cloudflare/clef) (joint-schema-head decision models, Apache-2.0). Runs in this repo's venv (`uv sync --extra clef`). |
 | any `systemone-http` | Jev-compatible HTTP | Point a `configs/backends/<name>.yaml` with `kind: systemone-http` at any server that speaks the protocol. |
 | `replay` | calls.jsonl | Deterministic regression runs. |
+
+## Clef (Cloudflare)
+[Clef / Clef-Flash](https://huggingface.co/Cloudflare/clef) are open-weight "joint schema head" decision
+models whose API is documented as drop-in compatible with Jev/SystemOne, so they use the generic
+`systemone-http` backend kind (no bespoke client code) pointed at a local server that loads the HF weights
+in-process (`scripts/serve_clef.py`, same pattern as `s1doom serve-laya` / `semif_serve.py`).
+
+This host (Framework Desktop, Strix Halo / Radeon 8060S, 32GB RAM, no discrete GPU, no ROCm userspace
+installed) fits **Clef-Flash** only (9B, ~19GB bf16 resident); Clef (27B, ~54GB bf16) does not.
+A pinned ROCm-nightly `torch` build for this gfx1151 iGPU was tried and abandoned (universal-resolver
+version-split conflicts on `triton-rocm`'s own markers); `uv sync --extra clef` installs plain CPU torch.
+That CPU-only torch wheel pulls in a `triton` package whose wheel is a broken empty stub on this platform
+(`AttributeError: module 'triton' has no attribute 'language'`, breaks `transformers.modeling_utils` import)
+-- run `uv pip uninstall triton` once after every `uv sync --extra clef` before using the backend.
+
+```bash
+uv sync --extra clef && uv pip uninstall triton      # torch (CPU), transformers, fastapi, + unbreak triton
+uv run s1doom serve-clef --repo Cloudflare/clef-flash --port 8100 --device cpu   # loads once, serves /v1/systemone
+uv run s1doom play --scenario defend_the_center --backend clef-flash --episodes 5
+```
+`configs/backends/clef-flash.yaml` / `clef.yaml` are `kind: systemone-http` configs holding `url`/`model`;
+override with `--url`. Optional bearer auth via `key_env:` in the config (unused for a local server,
+same mechanism as `semif-framework`).
+
+**Verified on this host (CPU, bf16, `device=cpu`):** `defend_the_center`, 1 episode, `clef-flash`:
+7 kills, 0 damage taken, **0% fallback** (every answer cleared the confidence floor — unlike Laya's
+58–66%), 14 decisions, latency **1.4–2.3 s/decision** (vs Cloudflare's H200 benchmark of 209/39 ms median
+for Clef/Clef-Flash — the gap is the CPU-vs-H200 floor, not a bug). Fine for `--mode turn` evals; too slow
+for `--mode realtime` (35 Hz, 400 ms staleness drop) without GPU acceleration. ROCm torch for this iGPU
+is the natural next step to close that gap (see `configs/backends/clef.yaml` to point at a ROCm- or
+CUDA-accelerated server instead of this CPU one once available).
 
 Configs for other Laya hosts (Framework Desktop, Jetson) are in `configs/backends/`. Point `url` at a running `laya-serve`.
 
