@@ -37,9 +37,10 @@ for d in sorted(glob.glob("runs/2026-10-1*_v2-*")):
     runs[(tag, sc, b)] = {e["seed"]: e for e in s["episodes"]}
     cfgs[(tag, sc, b)] = (c.get("git"), c.get("prompt_version"), c["policy"]["fallback_enabled"], c["opportunistic_fire"])
 
-# v2-nofb-m3b reruns the Laya seeds that hit the --max-calls cap in v2-nofb-m3: they replace them
-for (tag, sc, b) in [k for k in runs if k[0] == "v2-nofb-m3b"]:
-    runs[("v2-nofb-m3", sc, b)].update(runs.pop((tag, sc, b)))
+# "<tag>b" runs extend or replace seeds of "<tag>": v2-nofb-m3b reruns the Laya seeds that hit
+# --max-calls; v2-m2b / v2-nofb-m2b extend Clef 27B's deadly_corridor from 10 to 20 seeds
+for (tag, sc, b) in [k for k in runs if k[0].endswith("b")]:
+    runs.setdefault((tag[:-1], sc, b), {}).update(runs.pop((tag, sc, b)))
 
 print("provenance:", sorted({v[:2] for v in cfgs.values()}))
 
