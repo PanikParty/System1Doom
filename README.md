@@ -103,10 +103,10 @@ Every backend ran on one code version (`ae293c3`, prompts v1.2; Clef 27B: see §
 | **no fallback**: deadly_corridor / health_gathering / my_way_home / MAP01 | – | – | 95% / 1870 / 100% / 80% | 95% / **585** / **50%** / **40%** | 60% / 1935 / 100% / 90% | 70% / 1866 / 100% / 90% | **95%** / 1890 / 100% / 100% |
 | fallback rate (dtc / dc / hgs / mwh / MAP01) | – | disabled | 2 / 7 / 9 / 1 / 2% | 13 / 59 / 66 / 19 / 66% | 2 / 5 / 8 / 0 / 2% | 2 / 7 / 26 / 0 / 7% | 4 / 6 / 23 / 0 / 3% |
 | latency p50, 1 / 3 / 6 questions (solo bench) | – | – | 214 ‡ / 128 / 142 ms | 44 / 99 / 169 ms | 275 / 458 / 643 ms | 540 / 795 / 1051 ms | 1260 / 1973 / 2741 ms |
-| in_danger AUC (accuracy; always-false scores 89–96%) ¶ | 0.70 (79%) | 0.52 | 0.82 (72%) | **0.88** (4%) | 0.76 (67%) | 0.78 (77%) | 0.77 (66%) |
+| in_danger AUC within scenario, dtc / dc ¶ | 0.68 / 0.62 | ~0.5 | 0.89 / 0.86 | **0.72 / 0.74** | 0.91 / 0.83 | 0.89 / 0.79 | 0.91 / 0.86 |
 
 † Laya's results with fallback are mostly the heuristic's: health_gathering is identical to the heuristic in 20/20 episodes. Alone, Laya fails health_gathering and my_way_home, and finishes MAP01 only 4/10 times (six timeouts).  
-¶ Each backend is scored on the states it visited, and the scenario mixes differ, so read these as indicative.  
+¶ Computed within each scenario. Pooling across scenarios confounds the scenario mix with ranking: Laya's pooled AUC is 0.88, but it ranks danger worst within every scenario. Every backend's in_danger is less accurate than always answering "false" at a 0.5 threshold.  
 § Clef 27B ran afterwards on `6187e8e` (game code unchanged) with 10 episodes per scenario and 5 on MAP01; deadly_corridor has the full 20. Its Δs are paired on its own seeds. Like-for-like tables are in `docs/verification-v2.md`, "Clef 27B".  
 ‡ Includes connection warm-up (p95 733 ms). Laya and SemIf are measured on the Framework's GPU; Jev is called from the Framework.
 
@@ -114,8 +114,8 @@ Every backend ran on one code version (`ae293c3`, prompts v1.2; Clef 27B: see §
 - **deadly_corridor is the only scenario that separates the models.** Jev, Laya and Clef 27B reach the vest 90–95% of the time, and SemIf and Clef-Flash 55%. Paired on the same 20 seeds, the 27B beats Clef-Flash by +35 points [+15, +55], winning all 7 seeds where they disagree.
 - **On defend_the_center, every model beats the heuristic by about 1.9 kills and is indistinguishable from the others.**
 - **On MAP01, the navigator does the work.** Random finishes 9/10.
-- **Laya's `in_danger` ranks danger best (AUC 0.88), but it is offset.** Every probability falls between 0.52 and 0.66, so it is "wrong" at a 0.5 threshold. That is a calibration problem, not an absence of signal.
-- **Jev's `in_danger`, like every backend's, is less accurate than always answering "false".**
+- **`in_danger` doesn't affect play.** Nothing in `control/` reads it, so it is an evaluation probe. Within scenarios, Jev, SemIf and both Clefs rank danger well (AUC 0.79–0.91); Laya is the weakest (0.72–0.74).
+- **Laya's in_danger says "true" every time** (probabilities between 0.52 and 0.66). A temperature + bias fit (`calibrate --bias`, `configs/calibration-laya-v2.yaml`) removes the offset, but on held-out scenarios calibrated Laya is roughly as good as predicting the base rate (better on 2 of 5 scenarios, worse on 2). A calibrated rerun replays identical games. Details are in `docs/verification-v2.md`, "Laya calibration".
 
 Jev isn't deterministic between runs. Its earlier v1.2 MAP01 result of 10/10 and this campaign's 8/10 are both consistent with roughly 80–90% at n=10.
 
@@ -135,7 +135,7 @@ Earlier v1/v1.1 results (Mac, 2026-09-27/28) were audited against `runs/`. The m
 - **defend_the_center is dominated by the controller.** With aligned-only firing, random roughly matches the heuristic (~20 kills out of 26 pistol rounds). With `--no-opportunistic-fire`, random scores *highest* (23.55 against 22.75–23.10 for the models; v2 campaign). Neither variant is a test of decision quality. Use deadly_corridor, and the no-fallback runs, to tell backends apart.
 - **Full-level autoplay needed Doom physics in the nav graph.** Three fixes were required: nodes offset off the linedef grid; floor and ceiling taken over every sector the 32-unit box touches (Freedoom2 MAP01's exit room is behind an 8-unit crack with floor −480); and remote-door switches planned as part of the path.
 - **Latency depends on the host.** Jev is about 130 ms and flat across 3 and 6 questions. Laya encodes the state once per question: 147/432/758 ms on Apple MPS, and 44/99/169 ms on the Framework GPU. On the Framework, SemIf (275–643 ms) and Clef-Flash (540–1051 ms) are slower than both.
-- **Confidence isn't comparable across backends.** Laya's choice `confidence` is entropy-based (0.01 for a 56/44 split), and Jev's noul answers have none. The gate uses our own max-probability. No eval so far has passed `--calibration`, so all gating used raw probabilities. Laya's in_danger (AUC 0.88, but always above 0.5) needs a fitted bias as well as a temperature before its fallback rate means anything.
+- **Confidence isn't comparable across backends.** Laya's choice `confidence` is entropy-based (0.01 for a 56/44 split), and Jev's noul answers have none. The gate uses our own max-probability. No campaign eval has passed `--calibration`, so all gating used raw probabilities. `calibrate --bias` adds a Platt bias for nouls. Laya's high fallback rate comes from its flat *choice* probabilities (mode, target, pickup, aggression: 81–100% fallback), which outcome labels can't calibrate.
 
 ## Deviations from PLAN.md (and why)
 - **Repo layout:** the package lives at the repo root (`src/s1doom`), not in an `s1doom/` subfolder.
@@ -150,5 +150,5 @@ Earlier v1/v1.1 results (Mac, 2026-09-27/28) were audited against `runs/`. The m
 ## Not done / needs outside input
 - `doom1.wad` (E1M1) isn't shipped. Drop it in `./wads/` and run `eval --scenario doom1_e1m1`; the run is skipped cleanly if the file is absent.
 - **Clef 27B at full n:** its lane ran 10 episodes per scenario (5 on MAP01). Only deadly_corridor has the full 20.
-- **Calibration with bias on outcome labels**, then a rerun with `--calibration`, to test Laya without its offset.
+- **Outcome labels for choice questions** (for example, whether the chosen target died), so Laya's flat mode, target and pickup probabilities could be calibrated.
 - M5 (fine-tuning Laya, a VLM front end) wasn't started.

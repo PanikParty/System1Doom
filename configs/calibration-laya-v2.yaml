@@ -1,0 +1,8 @@
+biases:
+  laya-framework|noul|2: -10.6924
+fitted_at: '2026-10-14'
+labels: outcome
+runs:
+- runs/2026-10-1*_laya-framework_v2-*
+temperatures:
+  laya-framework|noul|2: 0.0504

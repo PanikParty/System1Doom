@@ -66,7 +66,7 @@ During the campaign, four model lanes shared the GPU, so the per-decision latenc
 
 **in_danger** (noul) scored against outcome labels (damage taken in the next period). Columns: number of answers, base rate of damage, accuracy at a 0.5 threshold, the accuracy of always answering "false", Brier score, AUC, and how often the model's `mode` matches the heuristic's.
 
-Each backend is scored on the states *it* visited, and the scenario mixes differ: Laya's pool includes six 21,000-tic MAP01 timeouts with a low damage rate. Treat the AUCs as indicative, not as a strict ranking.
+**Don't rank backends by the pooled AUC below.** Each backend is scored on the states *it* visited, and the scenario mixes differ, so pooling mixes scenarios with very different damage rates (Simpson's paradox). Laya's pooled 0.88 is the clearest case: 34k of its 59k answers come from MAP01 (almost no damage, lower p), while health_gathering has 24% damage and higher p. Within each scenario Laya ranks danger *worst* of the models. Use the per-scenario table after this one.
 
 | backend | n | base rate | acc@0.5 | always-false | Brier | AUC | mode = heuristic |
 |---|---|---|---|---|---|---|---|
@@ -77,6 +77,49 @@ Each backend is scored on the states *it* visited, and the scenario mixes differ
 | SemIf | 32,475 | 9.6% | 67.1% | 90.4% | 0.219 | 0.76 | 83% |
 | Clef-Flash | 31,317 | 10.0% | 77.2% | 90.0% | 0.143 | 0.78 | 72% |
 | Clef 27B | 15,124 | 10.6% | 65.7% | 89.4% | 0.195 | 0.77 | 80% |
+
+**in_danger AUC within each scenario** (damage base rate in brackets). my_way_home never produces damage. On health_gathering, damage comes from the acid floor and every source is near or below chance. defend_the_center and deadly_corridor are the informative rows.
+
+| scenario | heuristic | Jev | Laya | SemIf | Clef-Flash | Clef 27B |
+|---|---|---|---|---|---|---|
+| defend_the_center (≈3.9%) | 0.68 | 0.89 | **0.72** | 0.91 | 0.89 | 0.91 |
+| deadly_corridor (5–9%) | 0.62 | 0.86 | **0.74** | 0.83 | 0.79 | 0.86 |
+| health_gathering_supreme (≈24%) | 0.03 | 0.43 | 0.54 | 0.43 | 0.47 | 0.45 |
+| freedoom2_map01 (0–0.9%) | 0.00 | 0.81 | 0.57 | 0.83 | 0.74 | 0.85 |
+
+**in_danger has no effect on play.** `Policy` sets `Decision.in_danger`, but nothing in `control/` reads it; it is only logged and drawn on the overlay. It is an evaluation probe, not a decision.
+
+## Laya calibration (temperature + bias)
+`s1doom calibrate --bias` fits Platt scaling for noul questions (logit' = logit/T + b) on outcome labels. Fitted on all of Laya's v2 in_danger answers (n = 59,345): **T = 0.050, b = −10.69** (`configs/calibration-laya-v2.yaml`).
+
+Leave-one-scenario-out (fit on four scenarios, score the fifth), Brier score:
+
+| held-out scenario | raw | calibrated | heuristic | constant base rate |
+|---|---|---|---|---|
+| defend_the_center | 0.343 | 0.059 | 0.106 | 0.038 |
+| deadly_corridor | 0.321 | 0.047 | 0.116 | 0.047 |
+| health_gathering_supreme | 0.315 | 0.228 | 0.248 | 0.238 |
+| my_way_home | 0.352 | 0.004 | 0.022 | 0.002 |
+| freedoom2_map01 | 0.320 | 0.001 | 0.023 | 0.008 |
+
+**What the calibration shows:**
+- **It removes Laya's offset.** Brier drops by about 6× and accuracy rises from 4% to 93–100%.
+- **But calibrated Laya is about as good as predicting the base rate, no better.** It beats the base rate on MAP01 (0.001 vs 0.008) and health_gathering (0.228 vs 0.238), ties on deadly_corridor, and loses on defend_the_center (0.059 vs 0.038) and my_way_home. On health_gathering its held-out log-loss is also worse than the raw probabilities' (0.900 vs 0.825), a sign of overconfidence when the fit is transferred.
+- **Laya's in_danger carries little information beyond the base rate.** That is consistent with its weak within-scenario AUC.
+
+**The rerun changes nothing, as predicted.** Laya with `--calibration` on defend_the_center, seeds 1234–1236, flips in_danger from "true" on 138/138 decisions to 0/138, and the games are **identical** to the uncalibrated runs: same kills, damage, tics, decision counts and modes. Because in_danger isn't used for control, a full calibrated rerun would only replay the v2 episodes, so none was run.
+
+Laya's high fallback rate comes from its multi-option questions, not in_danger:
+
+| question | Laya fallback rate (v2 runs with fallback) |
+|---|---|
+| mode | 81% |
+| target | 100% |
+| pickup | 100% |
+| aggression | 100% |
+| in_danger | 2% |
+
+Those questions have no outcome labels, so outcome calibration can't help. The no-fallback runs already show how Laya's own choices play.
 
 ## README claims: verdicts
 
@@ -92,7 +135,7 @@ Each backend is scored on the states *it* visited, and the scenario mixes differ
 | Laya MAP01 with no fallback: 0/1 | **Superseded** | n=1. v2 got 4/10 [10, 70]: six timeouts, no deaths |
 | Random has "poor MAP01 completion" | **Refuted** (not measured before) | Random finishes 9/10. The navigator, not the decisions, completes the level |
 | Laya: "58–66% fallback" on defend_the_center (summary card) | **Wrong** | 12.5%. 58–66% is the deadly_corridor/health_gathering range; MAP01 is 66% |
-| Laya's probabilities are "near-uniform"; `in_danger` is "anti-informative" (4%) | **Refuted** | The ~4% accuracy reproduces (3.6%), but Laya has the best AUC (0.88). All 59,345 of its in_danger probabilities fall between 0.517 and 0.658 (median 0.58): it ranks danger well but is badly offset. That is a calibration problem, not a lack of signal |
+| Laya's probabilities are "near-uniform"; `in_danger` is "anti-informative" (4%) | **Partly** | The ~4% accuracy reproduces (3.6%): all 59,345 of its in_danger probabilities fall between 0.517 and 0.658, so it says "true" every time. It isn't anti-informative: within scenarios its AUC is 0.72–0.74, above the heuristic's. But it is the weakest of the models, and once calibrated it is no better than the base rate. (An earlier version of this report called its pooled AUC of 0.88 "the best ranking"; that was a pooling artifact.) Laya's *choice* probabilities are near-uniform: 81–100% of mode, target, pickup and aggression answers fall back |
 | Jev in_danger 90%, "informative enough to serve as an outcome label" | **Refuted** | 71.8% accuracy, below the 91.6% of always answering "false". AUC is 0.82, and its Brier score is worse than the heuristic's on the same states |
 | Laya is 7B | **Wrong** | `typed-decisions` has 0.42B parameters (counted from its safetensors) |
 | Latency: Jev ~120 ms flat; Laya on the Framework 56/113/181 | **Confirmed** | Jev 128/142 ms (3/6 questions); Laya 44/99/169 |
@@ -147,6 +190,6 @@ That is the only significant difference between the two sizes. Elsewhere the 27B
 - **Clef 27B is clearly better than Clef-Flash on deadly_corridor** (+35 points, paired) and matches Jev there, but it costs 1.3–2.7 s per decision. On every other scenario it is indistinguishable from the rest.
 
 ## Open items
-- **Calibration.** Laya's in_danger has the best ranking (AUC 0.88) but sits above 0.5, so it mostly falls back. Fitting a temperature *and bias* on outcome labels, and evaluating with `--calibration`, would test whether Laya is better than its fallback rate suggests.
+- **Labels for choice questions.** Laya's fallback comes from mode, target, pickup and aggression. Calibrating those needs outcome labels per option (for example, whether the chosen target died, or whether the mode led to damage). Heuristic-agreement labels only reward imitation.
 - **Clef 27B at full n.** Its lane ran 10 episodes per scenario (5 on MAP01), except for deadly_corridor.
 - **Sample size.** MAP01 at n=10 can't resolve differences smaller than about 30 points. deadly_corridor is the scenario worth scaling to more seeds.
