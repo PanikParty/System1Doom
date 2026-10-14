@@ -55,7 +55,7 @@ LD_PRELOAD=/usr/lib64/libhsa-runtime64.so.1 CLEF_API_KEY=... ~/clef/.venv/bin/py
 ```
 On a CUDA box, SGLang serves `/v1/systemone` directly (`lmsysorg/sglang:dev-clef`, see the model card). Point `url` in `configs/backends/clef*.yaml` at it.
 
-**Clef-Flash latency** (Framework GPU, MAP01 states, p50): 540 / 795 / 1051 ms for 1 / 3 / 6 questions. That is about 3× faster than on CPU, but still the slowest backend here. The joint head reads every question, so the cost grows with the question count. **Clef 27B** isn't running yet: the weights fit in VRAM, but transformers stages them in system RAM and the process is killed for running out of memory at ~20 GB (see `docs/verification-v2.md`, "Open items").
+**Clef-Flash latency** (Framework GPU, MAP01 states, p50): 540 / 795 / 1051 ms for 1 / 3 / 6 questions. That is about 3× faster than on CPU, but still the slowest backend here. The joint head reads every question, so the cost grows with the question count. **Clef 27B** (`--repo Cloudflare/clef --port 8101`, user service `clef-serve`) takes 1260 / 1973 / 2741 ms. `from_pretrained` stages the whole checkpoint in host RAM, which the Framework's 31 GB can't hold, so `serve_clef.py` defaults to `--loader direct`. That loader streams each tensor onto the GPU; it is bit-identical to `from_pretrained` (checked with `scripts/check_clef_loader.py`) and loads the 27B in 34.5 s. It needs about 57 GB of VRAM, so stop `clef-flash-serve` while it runs alongside Laya and SemIf.
 
 Configs for other Laya hosts (Framework Desktop, Jetson) are in `configs/backends/`. Point `url` at a running `laya-serve`.
 
@@ -91,26 +91,27 @@ src/s1doom/agent.py    episode loop (turn + realtime)      src/s1doom/cli.py  ty
 ```
 
 ## Results (verification campaign v2, 2026-10-13)
-Every backend ran on one code version (`ae293c3`, prompts v1.2), the same seeds (1234+i) and turn mode, on the Framework Desktop. The full method, CIs, provenance checks and a verdict for every earlier claim are in [`docs/verification-v2.md`](docs/verification-v2.md). Δ is the paired difference against the heuristic, with a bootstrap 95% CI; **bold** marks a CI that excludes 0.
+Every backend ran on one code version (`ae293c3`, prompts v1.2; Clef 27B: see §), the same seeds (1234+i) and turn mode, on the Framework Desktop. The full method, CIs, provenance checks and a verdict for every earlier claim are in [`docs/verification-v2.md`](docs/verification-v2.md). Δ is the paired difference against the heuristic, with a bootstrap 95% CI; **bold** marks a CI that excludes 0.
 
-| outcome (n) | heuristic | random | Jev | Laya | SemIf | Clef-Flash |
-|---|---|---|---|---|---|---|
-| defend_the_center kills (20) | 20.60 | 21.25 | 22.35 (Δ **+1.75**) | 22.50 (Δ **+1.90**) | 22.55 (Δ **+1.95**) | 22.45 (Δ **+1.85**) |
-| deadly_corridor vest (20) | 80% | 30% | 90% | 95% | 55% | 55% (Δ **−25**) |
-| health_gathering_supreme tics (20) | 2020 | 1236 | 1969 | 2020 † | 1811 (−10.3%) | 1953 |
-| my_way_home success (20) | 100% | 95% | 100% | 100% | 100% | 100% |
-| Freedoom2 MAP01 exit (10) | 100% | 90% | 80% | 100% † | 100% | 90% |
-| **no fallback**: deadly_corridor / health_gathering / my_way_home / MAP01 | – | – | 95% / 1870 / 100% / 80% | 95% / **585** / **50%** / **40%** | 60% / 1935 / 100% / 90% | 70% / 1866 / 100% / 90% |
-| fallback rate (dtc / dc / hgs / mwh / MAP01) | – | disabled | 2 / 7 / 9 / 1 / 2% | 13 / 59 / 66 / 19 / 66% | 2 / 5 / 8 / 0 / 2% | 2 / 7 / 26 / 0 / 7% |
-| latency p50, 1 / 3 / 6 questions (solo bench) | – | – | 214 ‡ / 128 / 142 ms | 44 / 99 / 169 ms | 275 / 458 / 643 ms | 540 / 795 / 1051 ms |
-| in_danger AUC (accuracy; always-false scores 89–96%) ¶ | 0.70 (79%) | 0.52 | 0.82 (72%) | **0.88** (4%) | 0.76 (67%) | 0.78 (77%) |
+| outcome (n) | heuristic | random | Jev | Laya | SemIf | Clef-Flash | Clef 27B § |
+|---|---|---|---|---|---|---|---|
+| defend_the_center kills (20) | 20.60 | 21.25 | 22.35 (Δ **+1.75**) | 22.50 (Δ **+1.90**) | 22.55 (Δ **+1.95**) | 22.45 (Δ **+1.85**) | 22.90 (Δ **+2.80**) |
+| deadly_corridor vest (20) | 80% | 30% | 90% | 95% | 55% | 55% (Δ **−25**) | **90%** |
+| health_gathering_supreme tics (20) | 2020 | 1236 | 1969 | 2020 † | 1811 (−10.3%) | 1953 | 2017 |
+| my_way_home success (20) | 100% | 95% | 100% | 100% | 100% | 100% | 100% |
+| Freedoom2 MAP01 exit (10) | 100% | 90% | 80% | 100% † | 100% | 90% | 100% (5/5) |
+| **no fallback**: deadly_corridor / health_gathering / my_way_home / MAP01 | – | – | 95% / 1870 / 100% / 80% | 95% / **585** / **50%** / **40%** | 60% / 1935 / 100% / 90% | 70% / 1866 / 100% / 90% | **95%** / 1890 / 100% / 100% |
+| fallback rate (dtc / dc / hgs / mwh / MAP01) | – | disabled | 2 / 7 / 9 / 1 / 2% | 13 / 59 / 66 / 19 / 66% | 2 / 5 / 8 / 0 / 2% | 2 / 7 / 26 / 0 / 7% | 4 / 6 / 23 / 0 / 3% |
+| latency p50, 1 / 3 / 6 questions (solo bench) | – | – | 214 ‡ / 128 / 142 ms | 44 / 99 / 169 ms | 275 / 458 / 643 ms | 540 / 795 / 1051 ms | 1260 / 1973 / 2741 ms |
+| in_danger AUC (accuracy; always-false scores 89–96%) ¶ | 0.70 (79%) | 0.52 | 0.82 (72%) | **0.88** (4%) | 0.76 (67%) | 0.78 (77%) | 0.77 (66%) |
 
 † Laya's results with fallback are mostly the heuristic's: health_gathering is identical to the heuristic in 20/20 episodes. Alone, Laya fails health_gathering and my_way_home, and finishes MAP01 only 4/10 times (six timeouts).  
 ¶ Each backend is scored on the states it visited, and the scenario mixes differ, so read these as indicative.  
+§ Clef 27B ran afterwards on `6187e8e` (game code unchanged) with 10 episodes per scenario and 5 on MAP01; deadly_corridor has the full 20. Its Δs are paired on its own seeds. Like-for-like tables are in `docs/verification-v2.md`, "Clef 27B".  
 ‡ Includes connection warm-up (p95 733 ms). Laya and SemIf are measured on the Framework's GPU; Jev is called from the Framework.
 
 **Reading the table:**
-- **deadly_corridor is the only scenario that separates the models.** Jev and Laya reach the vest 90–95% of the time, and SemIf and Clef-Flash 55%.
+- **deadly_corridor is the only scenario that separates the models.** Jev, Laya and Clef 27B reach the vest 90–95% of the time, and SemIf and Clef-Flash 55%. Paired on the same 20 seeds, the 27B beats Clef-Flash by +35 points [+15, +55], winning all 7 seeds where they disagree.
 - **On defend_the_center, every model beats the heuristic by about 1.9 kills and is indistinguishable from the others.**
 - **On MAP01, the navigator does the work.** Random finishes 9/10.
 - **Laya's `in_danger` ranks danger best (AUC 0.88), but it is offset.** Every probability falls between 0.52 and 0.66, so it is "wrong" at a 0.5 threshold. That is a calibration problem, not an absence of signal.
@@ -126,6 +127,7 @@ Earlier v1/v1.1 results (Mac, 2026-09-27/28) were audited against `runs/`. The m
 - **Laya**: `typed-decisions` has 0.42B parameters. It encodes the state once per question: on the Framework GPU it is the fastest backend at 1–3 questions, and Jev is faster at 6.
 - **SemIf**: Qwen3.5-4B option logits with shared-prefix scoring.
 - **Clef-Flash**: 9B, with one joint pass over all questions.
+- **Clef 27B**: the same joint head on Qwen3.8-27B. It is the best of the open models on deadly_corridor and the slowest backend, at 1.3–2.7 s per decision on the iGPU.
 - **Jev**: hosted API, flat at ~130 ms for 3–6 questions.
 
 ## Findings
@@ -147,6 +149,6 @@ Earlier v1/v1.1 results (Mac, 2026-09-27/28) were audited against `runs/`. The m
 
 ## Not done / needs outside input
 - `doom1.wad` (E1M1) isn't shipped. Drop it in `./wads/` and run `eval --scenario doom1_e1m1`; the run is skipped cleanly if the file is absent.
-- **Clef 27B on the Framework:** blocked by system RAM while loading (see `docs/verification-v2.md`, "Open items").
+- **Clef 27B at full n:** its lane ran 10 episodes per scenario (5 on MAP01). Only deadly_corridor has the full 20.
 - **Calibration with bias on outcome labels**, then a rerun with `--calibration`, to test Laya without its offset.
 - M5 (fine-tuning Laya, a VLM front end) wasn't started.

@@ -14,7 +14,7 @@ The campaign script is `scripts/campaign_v2.sh`, and the runs are tagged `v2-*`.
 | Backends | heuristic, random, Jev (hosted API), Laya `typed-decisions` 0.3.21 (`laya-framework`), SemIf Qwen3.5-4B (`semif-framework`), Clef-Flash 9B @ `8b2e5fd1` (`clef-flash`) |
 | Episodes | 20 per scenario and 10 on MAP01. Each model also ran the same suite with `--no-fallback`. defend_the_center was also run with `--no-opportunistic-fire`. |
 | Statistics | Bootstrap 95% CIs (10k resamples). "Δ" is the paired difference against the heuristic on the same seeds. |
-| Not run | **Clef 27B**: see "Open items". |
+| Clef 27B | Run afterwards on commit `6187e8e`, which differs from `ae293c3` only in `serve_clef.py`. It used a reduced lane: 10 episodes per scenario and 5 on MAP01, with deadly_corridor at the full 20, with and without fallback. See "Clef 27B". |
 
 ## Provenance checks
 - Every v2 run records `git: ae293c3` (clean tree) and `prompt_version: v1.2`. `calibration` is null in every run, old and new, so all gating used **raw** probabilities. The README's "after calibration" wording doesn't describe the evals.
@@ -60,6 +60,7 @@ Scenarios and outcome measured:
 | Laya | 44 / 47 | 99 / 106 | 169 / 186 |
 | SemIf | 275 / 324 | 458 / 537 | 643 / 809 |
 | Clef-Flash | 540 / 590 | 795 / 836 | 1051 / 1285 |
+| Clef 27B | 1260 / 1480 | 1973 / 2173 | 2741 / 3320 |
 
 During the campaign, four model lanes shared the GPU, so the per-decision latencies in `runs/` are inflated (Clef-Flash p50 was about 1.1–1.5 s). Use the table above for latency.
 
@@ -75,6 +76,7 @@ Each backend is scored on the states *it* visited, and the scenario mixes differ
 | Laya | 59,345 | 3.6% | 3.6% | 96.4% | 0.327 | **0.88** | 42% |
 | SemIf | 32,475 | 9.6% | 67.1% | 90.4% | 0.219 | 0.76 | 83% |
 | Clef-Flash | 31,317 | 10.0% | 77.2% | 90.0% | 0.143 | 0.78 | 72% |
+| Clef 27B | 15,124 | 10.6% | 65.7% | 89.4% | 0.195 | 0.77 | 80% |
 
 ## README claims: verdicts
 
@@ -101,18 +103,50 @@ Each backend is scored on the states *it* visited, and the scenario mixes differ
 | "`uv sync --extra clef && uv pip uninstall triton`" | **Harmful** | It replaced the ROCm torch with a CUDA build and removed `laya`, which would have broken laya-serve on its next restart |
 | Clef-Flash spot check: 7 kills, 0 damage, 0% fallback, 14 decisions, 100% agreement, 1.4–2.3 s | **Refuted** | On the GPU, n=20: 22.45 kills, about 2% fallback, a median of 134 decisions per episode, 72% mode agreement. Every v2 defend_the_center episode, for every backend, ends in death after at least 100 damage taken, so a 14-decision episode with 0 damage wasn't a normal run. Latency on the GPU is 540–1051 ms |
 | Clef-Flash "0% fallback is the headline" | **Refuted** | 0–26% depending on the scenario (health_gathering 26%) |
-| Clef 27B "does not fit" | **Open** | The weights fit in VRAM, but transformers' loader stages them in the 31 GB of system RAM and the process is killed for running out of memory (twice, at ~20 GB). See below |
+| Clef 27B "does not fit" | **Wrong** | The weights fit in VRAM. Only transformers' loader failed: it stages the whole checkpoint in the 31 GB of system RAM. `serve_clef.py --loader direct` loads it in 34.5 s |
+
+## Clef 27B
+**Loading.** `from_pretrained` copies the whole checkpoint into host RAM before moving it to the GPU. On Clef-Flash the peak was 19.7 GB, about the model's size. For the 27B that copy was killed twice at ~20 GB of the 31 GB of system RAM.
+
+`serve_clef.load_direct` (`--loader direct`, now the default) avoids the copy:
+1. It builds the backbone on the GPU with weight initialisation skipped.
+2. It rebuilds the rotary buffers on the CPU. Computed on the GPU, `inv_freq` differs by up to 3e-8, and that moved probabilities by up to 0.01.
+3. It copies each checkpoint tensor straight into its parameter. Checkpoint and model keys match one to one for both releases.
+
+`scripts/check_clef_loader.py` validated it on Clef-Flash:
+- 760/760 tensors are bit-identical to the checkpoint.
+- 190/190 answers on 60 real states are identical to a `from_pretrained` server.
+- Peak RSS is 9.8 GB, down from 19.7 GB.
+
+The 27B then loads in 34.5 s and takes about 57 GB of VRAM (19.3 → 76.8 GB in use). Clef-Flash was stopped during its runs to leave headroom.
+
+**Results, on the same seeds as the other backends.** Each column is restricted to the 27B's seeds:
+
+| outcome (n) | heuristic | random | Jev | Laya | SemIf | Clef-Flash | **Clef 27B** |
+|---|---|---|---|---|---|---|---|
+| dtc kills (10) | 20.10 | 20.90 | 22.30 | 21.90 | 23.00 | 22.80 | 22.90 |
+| dtc kills, no opportunistic fire (10) | 20.80 | 24.80 | 23.60 | 22.90 | 24.00 | 23.80 | 24.00 |
+| dc vest (20) | 80% | 30% | 90% | 95% | 55% | 55% | **90%** |
+| hgs tics (10) | 2080 | 1202 | 2072 | 2080 | 1890 | 1963 | 2017 |
+| mwh success (10) | 100% | 100% | 100% | 100% | 100% | 100% | 100% |
+| MAP01 exit (5) | 100% | 100% | 80% | 100% | 100% | 100% | 100% |
+| *no fallback:* dc / hgs / mwh / MAP01 | – | – | 95% / 1932 / 100% / 60% | 95% / 593 / 50% / 40% | 60% / 1999 / 100% / 100% | 70% / 1897 / 100% / 80% | **95%** / 1890 / 100% / 100% |
+| fallback (dtc / dc / hgs / mwh / MAP01) | | | | | | | 4 / 6 / 23 / 0 / 3% |
+
+**27B vs Clef-Flash on deadly_corridor**, paired on the same 20 seeds:
+- With fallback: **+35 points [+15, +55]**. Of the 7 seeds where only one of them reached the vest, all 7 went to the 27B.
+- No fallback: **+25 [+5, +45]**, 5 to 0.
+
+That is the only significant difference between the two sizes. Elsewhere the 27B is indistinguishable from the other models. It is the slowest backend: 1.3–2.7 s per decision on this iGPU.
 
 ## What the data supports
-- **Only deadly_corridor separates the backends.** Jev (90%) and Laya (95%) beat SemIf and Clef-Flash (55%). Clef-Flash is the only model significantly worse than the heuristic there (Δ −25 points, CI excludes 0). With no fallback, Jev and Laya stay at 95%, and SemIf and Clef-Flash reach 60–70%.
+- **Only deadly_corridor separates the backends.** Jev (90%), Laya (95%) and Clef 27B (90%) beat SemIf and Clef-Flash (55%). Clef-Flash is the only model significantly worse than the heuristic there (Δ −25 points, CI excludes 0). With no fallback, Jev, Laya and Clef 27B reach 95%, and SemIf and Clef-Flash 60–70%.
 - **Everywhere else, n=20 can't tell models apart, or tell them from the heuristic**, except that every model is about 1.9 kills better on defend_the_center, and random comes close.
 - **Laya with fallback measures the heuristic, not Laya.** On its own it fails health_gathering (585 tics) and my_way_home (50%). It finishes MAP01 only 4/10 times (six timeouts). Jev, SemIf and Clef-Flash hold up without fallback (80–90% on MAP01).
-- **Clef-Flash is a usable backend.** It plays like SemIf and slightly worse than Jev. It is the slowest of the four (0.5–1.1 s on this iGPU).
+- **Clef-Flash is a usable backend.** It plays like SemIf and slightly worse than Jev, and takes 0.5–1.1 s per decision on this iGPU.
+- **Clef 27B is clearly better than Clef-Flash on deadly_corridor** (+35 points, paired) and matches Jev there, but it costs 1.3–2.7 s per decision. On every other scenario it is indistinguishable from the rest.
 
 ## Open items
-- **Clef 27B.** The 52 GB download is complete. Loading it fails because transformers builds a CPU-side copy of the weights in the 31 GB of system RAM. Options:
-  1. Load the shards straight into GPU memory from a meta-device model, validated by matching Clef-Flash's logits.
-  2. Reduce the BIOS carve-out (for example, 64 GB VRAM / 64 GB RAM).
-  3. Add a temporary large swapfile (needs sudo).
 - **Calibration.** Laya's in_danger has the best ranking (AUC 0.88) but sits above 0.5, so it mostly falls back. Fitting a temperature *and bias* on outcome labels, and evaluating with `--calibration`, would test whether Laya is better than its fallback rate suggests.
+- **Clef 27B at full n.** Its lane ran 10 episodes per scenario (5 on MAP01), except for deadly_corridor.
 - **Sample size.** MAP01 at n=10 can't resolve differences smaller than about 30 points. deadly_corridor is the scenario worth scaling to more seeds.
