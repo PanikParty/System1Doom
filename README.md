@@ -10,7 +10,7 @@ See `PLAN.md` for the design. Results live in `runs/report.md` (`uv run s1doom r
 ```bash
 uv sync                      # core (ViZDoom ships Freedoom1/2)
 uv sync --extra laya         # + Laya in-process / laya-serve (torch)
-uv run pytest -q             # 36 tests: unit, contract (recorded Jev+Laya fixtures), engine smoke
+uv run pytest -q             # unit, contract (recorded Jev, Laya, SemIf fixtures), engine smoke
 
 uv run s1doom play --scenario defend_the_center --backend heuristic --overlay --window
 uv run s1doom play --scenario freedoom2_map01 --backend jev --overlay --window
@@ -34,40 +34,28 @@ Keys: Jev reads `TYPESAFE_API_KEY`, or a key file at `TYPESAFE_API_KEY_FILE` (de
 | `laya-http` | `laya-serve` `/v1/systemone` | The host is config (`configs/backends/laya-*.yaml`). |
 | `laya-inproc` | `laya.load(..., subfolder="typed-decisions")` | MPS on Apple silicon. |
 | `semif` | `scripts/semif_serve.py` → `/v1/systemone` | [SemIf](https://github.com/TheoLeeCJ/SemIf-OpenJev) (Qwen3.5-4B typed-option logits, MIT). Runs in SemIf's own venv (MLX on Apple Silicon, torch/CUDA elsewhere). |
-| `clef-flash` / `clef` | `scripts/serve_clef.py` → `/v1/systemone` | [Cloudflare Clef / Clef-Flash](https://huggingface.co/Cloudflare/clef) (joint-schema-head decision models, Apache-2.0). Runs in this repo's venv (`uv sync --extra clef`). |
+| `clef-flash` / `clef` | `scripts/serve_clef.py` → `/v1/systemone` | [Cloudflare Clef-Flash (9B) / Clef (27B)](https://huggingface.co/Cloudflare/clef), joint-schema-head decision models, Apache-2.0. Runs in its own ROCm/CUDA torch venv (see "Clef"). |
 | any `systemone-http` | Jev-compatible HTTP | Point a `configs/backends/<name>.yaml` with `kind: systemone-http` at any server that speaks the protocol. |
 | `replay` | calls.jsonl | Deterministic regression runs. |
 
 ## Clef (Cloudflare)
-[Clef / Clef-Flash](https://huggingface.co/Cloudflare/clef) are open-weight "joint schema head" decision
-models whose API is documented as drop-in compatible with Jev/SystemOne, so they use the generic
-`systemone-http` backend kind (no bespoke client code) pointed at a local server that loads the HF weights
-in-process (`scripts/serve_clef.py`, same pattern as `s1doom serve-laya` / `semif_serve.py`).
+[Clef-Flash / Clef](https://huggingface.co/Cloudflare/clef) speak the Jev/SystemOne protocol natively, so they use the generic `systemone-http` kind. `scripts/serve_clef.py` (also `s1doom serve-clef`) wraps the `systemone()` that ships in the model repo. It pins the HF revision, requires `Authorization: Bearer $CLEF_API_KEY` when that variable is set, and reports revision, device and torch on `/health`.
 
-This host (Framework Desktop, Strix Halo / Radeon 8060S, 32GB RAM, no discrete GPU, no ROCm userspace
-installed) fits **Clef-Flash** only (9B, ~19GB bf16 resident); Clef (27B, ~54GB bf16) does not.
-A pinned ROCm-nightly `torch` build for this gfx1151 iGPU was tried and abandoned (universal-resolver
-version-split conflicts on `triton-rocm`'s own markers); `uv sync --extra clef` installs plain CPU torch.
-That CPU-only torch wheel pulls in a `triton` package whose wheel is a broken empty stub on this platform
-(`AttributeError: module 'triton' has no attribute 'language'`, breaks `transformers.modeling_utils` import)
--- run `uv pip uninstall triton` once after every `uv sync --extra clef` before using the backend.
-
+**Framework Desktop** (Strix Halo, 128 GB unified memory with 96 GiB carved out as VRAM, so Linux shows only 31 GB of RAM; Radeon 8060S / gfx1151; Fedora 44). Clef-Flash runs on the GPU from its own venv. Don't use `uv sync --extra clef` there: it swaps in a CUDA torch build, and in this repo's venv it also removes `laya`.
 ```bash
-uv sync --extra clef && uv pip uninstall triton      # torch (CPU), transformers, fastapi, + unbreak triton
-uv run s1doom serve-clef --repo Cloudflare/clef-flash --port 8100 --device cpu   # loads once, serves /v1/systemone
-uv run s1doom play --scenario defend_the_center --backend clef-flash --episodes 5
+uv venv --python 3.11 ~/clef/.venv
+uv pip install -p ~/clef/.venv/bin/python --index-url https://download.pytorch.org/whl/nightly/rocm7.1 \
+  --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match torch==2.14.0.dev20260804+rocm7.1
+uv pip install -p ~/clef/.venv/bin/python --no-deps --index-url https://download.pytorch.org/whl/nightly/rocm7.1 \
+  torchvision==0.29.0.dev20260807+rocm7.1         # the Qwen3-VL processor imports it
+uv pip install -p ~/clef/.venv/bin/python transformers==5.17.0 accelerate safetensors huggingface-hub pillow fastapi uvicorn typer
+# the pip wheel's bundled libhsa segfaults on Fedora 44 -- preload the distro one (as laya-serve and semif-serve do)
+LD_PRELOAD=/usr/lib64/libhsa-runtime64.so.1 CLEF_API_KEY=... ~/clef/.venv/bin/python scripts/serve_clef.py \
+  --repo Cloudflare/clef-flash --port 8100 --device cuda       # user service: clef-flash-serve
 ```
-`configs/backends/clef-flash.yaml` / `clef.yaml` are `kind: systemone-http` configs holding `url`/`model`;
-override with `--url`. Optional bearer auth via `key_env:` in the config (unused for a local server,
-same mechanism as `semif-framework`).
+On a CUDA box, SGLang serves `/v1/systemone` directly (`lmsysorg/sglang:dev-clef`, see the model card). Point `url` in `configs/backends/clef*.yaml` at it.
 
-**Verified on this host (CPU, bf16, `device=cpu`):** `defend_the_center`, 1 episode, `clef-flash`:
-7 kills, 0 damage taken, **0% fallback** (every answer cleared the confidence floor — unlike Laya's
-58–66%), 14 decisions, latency **1.4–2.3 s/decision** (vs Cloudflare's H200 benchmark of 209/39 ms median
-for Clef/Clef-Flash — the gap is the CPU-vs-H200 floor, not a bug). Fine for `--mode turn` evals; too slow
-for `--mode realtime` (35 Hz, 400 ms staleness drop) without GPU acceleration. ROCm torch for this iGPU
-is the natural next step to close that gap (see `configs/backends/clef.yaml` to point at a ROCm- or
-CUDA-accelerated server instead of this CPU one once available).
+**Clef-Flash latency** (Framework GPU, MAP01 states, p50): 540 / 795 / 1051 ms for 1 / 3 / 6 questions. That is about 3× faster than on CPU, but still the slowest backend here. The joint head reads every question, so the cost grows with the question count. **Clef 27B** isn't running yet: the weights fit in VRAM, but transformers stages them in system RAM and the process is killed for running out of memory at ~20 GB (see `docs/verification-v2.md`, "Open items").
 
 Configs for other Laya hosts (Framework Desktop, Jetson) are in `configs/backends/`. Point `url` at a running `laya-serve`.
 
@@ -102,116 +90,50 @@ src/s1doom/telemetry   JSONL, metrics, overlay, summary, report
 src/s1doom/agent.py    episode loop (turn + realtime)      src/s1doom/cli.py  typer CLI
 ```
 
-## Results (turn mode, seed 1234, full tables and charts in `runs/report.md`)
+## Results (verification campaign v2, 2026-10-13)
+Every backend ran on one code version (`ae293c3`, prompts v1.2), the same seeds (1234+i) and turn mode, on the Framework Desktop. The full method, CIs, provenance checks and a verdict for every earlier claim are in [`docs/verification-v2.md`](docs/verification-v2.md). Δ is the paired difference against the heuristic, with a bootstrap 95% CI; **bold** marks a CI that excludes 0.
 
-| milestone gate (PLAN §4) | heuristic | random | **Jev** | **Laya** (typed-decisions, MPS) |
-|---|---|---|---|---|
-| M1 defend_the_center kills (20 ep), gate: ≥90% of heuristic, fallback <25% | 20.6 ± 1.1 | 20.6 ± 0.7 | **22.45 ± 1.2** ✅ (fallback 1%) | **22.5 ± 0.8** ✅ (fallback 12%) |
-| M2 deadly_corridor vest reached (20 ep, skill 5), gate: ≥50% | 70% | 15% | **90%** ✅ | 70% ✅ (fallback 58%) |
-| M2 health_gathering_supreme survival tics (20 ep), gate: ≥ heuristic −10% | 2020 | 1236 | **1859** ✅ (−8%) | 2020 ✅ (fallback 66%) |
-| M2 my_way_home success (20 ep) | 100% | 95% | 100% | 100% (fallback 19%) |
-| M3 Freedoom2 MAP01 exit (10 seeds, skill 2), gates: heuristic ≥60%, Jev ≥40% | **100%** ✅ | – | **70%** ✅ | 100% (fallback 71%) |
-| MAP01 with **no fallback** (5 seeds): the model alone | – | – | **80%** | 0/1 (timed out at 32% explored; stopped: ~5 s/decision on MPS) |
-| Latency p50 / p95 per decision | – | – | 116–130 / ~170 ms | 232–449 ms |
-
-**With the v1.2 unseen-attacker fix** (`scan` becomes legal when damage comes from nothing visible), Jev completes **10/10** MAP01 seeds (up from 7/10), with less damage taken. Laya wasn't re-run on v1.2.
-
-**How to read the Laya rows:** Laya's probabilities are flat, so 58–66% of its answers fall below the confidence floor and the heuristic answers instead. Its M2 numbers are therefore largely the heuristic's. With no fallback, Laya still scores 22.8 kills on defend_the_center (5 ep), but didn't finish MAP01. Laya's `in_danger` is anti-informative on outcome labels (4% accuracy); Jev's is 90%.
-
-Realtime mode (35 Hz, ASYNC_PLAYER) runs without frame stalls (0 overruns, p99 per-tic work 8 ms). With Laya on MPS, answers arrive with 230–480 ms staleness, and those older than 400 ms are dropped.
-
-## Model Performance Summary
-
-All figures are **turn mode** (seed 1234) unless noted. Clef-Flash numbers come from the two runs in `runs/` (n=1 episode each); all others from the 20-episode M1–M3 eval campaign. Full tables and per-episode charts: `uv run s1doom report`.
-
-### At-a-glance
-
-| Model | Size / host | `defend_the_center` kills | `deadly_corridor` vest | `MAP01` exit | Fallback | Latency p50 |
+| outcome (n) | heuristic | random | Jev | Laya | SemIf | Clef-Flash |
 |---|---|---|---|---|---|---|
-| **heuristic** | Python / in-loop | 20.6 ± 1.1 (n=20) | 70% (n=20) | 100% (n=10) | — | — |
-| **random** | Python / in-loop | 20.6 ± 0.7 (n=20) | 15% (n=20) | — | disabled | — |
-| **Jev** | hosted API | 22.45 ± 1.2 (n=20) | 90% (n=20) | 70% / 100% † (n=10) | 1% | ~120 ms |
-| **Laya** | 7B, MPS in-proc | 22.5 ± 0.8 (n=20) | 70% (n=20) | 100% (n=10) | 58–66% | ~290–450 ms |
-| **Clef-Flash** | 9B, CPU local | 7.0 (n=1 ‡) | — | — | **0%** | ~1.8 s § |
-| **SemIf** | 4B, MLX local | — | — | — | — | ~1.3–1.8 s ¶ |
+| defend_the_center kills (20) | 20.60 | 21.25 | 22.35 (Δ **+1.75**) | 22.50 (Δ **+1.90**) | 22.55 (Δ **+1.95**) | 22.45 (Δ **+1.85**) |
+| deadly_corridor vest (20) | 80% | 30% | 90% | 95% | 55% | 55% (Δ **−25**) |
+| health_gathering_supreme tics (20) | 2020 | 1236 | 1969 | 2020 † | 1811 (−10.3%) | 1953 |
+| my_way_home success (20) | 100% | 95% | 100% | 100% | 100% | 100% |
+| Freedoom2 MAP01 exit (10) | 100% | 90% | 80% | 100% † | 100% | 90% |
+| **no fallback**: deadly_corridor / health_gathering / my_way_home / MAP01 | – | – | 95% / 1870 / 100% / 80% | 95% / **585** / **50%** / **40%** | 60% / 1935 / 100% / 90% | 70% / 1866 / 100% / 90% |
+| fallback rate (dtc / dc / hgs / mwh / MAP01) | – | disabled | 2 / 7 / 9 / 1 / 2% | 13 / 59 / 66 / 19 / 66% | 2 / 5 / 8 / 0 / 2% | 2 / 7 / 26 / 0 / 7% |
+| latency p50, 1 / 3 / 6 questions (solo bench) | – | – | 214 ‡ / 128 / 142 ms | 44 / 99 / 169 ms | 275 / 458 / 643 ms | 540 / 795 / 1051 ms |
+| in_danger AUC (accuracy; always-false scores 89–96%) ¶ | 0.70 (79%) | 0.52 | 0.82 (72%) | **0.88** (4%) | 0.76 (67%) | 0.78 (77%) |
 
-† 70% before v1.2 unseen-attacker fix; **10/10 (100%)** after. Laya at 100% is largely the fallback heuristic (71% fallback rate).  
-‡ Single-episode spot-check; not directly comparable to the 20-episode milestone averages.  
-§ CPU inference on Framework Desktop (gfx1151, no ROCm); Cloudflare's H200 baseline is 39 ms median for Clef-Flash.  
-¶ Measured on M-series Mac (MLX BF16); no `s1doom eval` run yet.
+† Laya's results with fallback are mostly the heuristic's: health_gathering is identical to the heuristic in 20/20 episodes. Alone, Laya fails health_gathering and my_way_home, and finishes MAP01 only 4/10 times (six timeouts).  
+¶ Each backend is scored on the states it visited, and the scenario mixes differ, so read these as indicative.  
+‡ Includes connection warm-up (p95 733 ms). Laya and SemIf are measured on the Framework's GPU; Jev is called from the Framework.
 
----
+**Reading the table:**
+- **deadly_corridor is the only scenario that separates the models.** Jev and Laya reach the vest 90–95% of the time, and SemIf and Clef-Flash 55%.
+- **On defend_the_center, every model beats the heuristic by about 1.9 kills and is indistinguishable from the others.**
+- **On MAP01, the navigator does the work.** Random finishes 9/10.
+- **Laya's `in_danger` ranks danger best (AUC 0.88), but it is offset.** Every probability falls between 0.52 and 0.66, so it is "wrong" at a 0.5 threshold. That is a calibration problem, not an absence of signal.
+- **Jev's `in_danger`, like every backend's, is less accurate than always answering "false".**
 
-### Heuristic
+Jev isn't deterministic between runs. Its earlier v1.2 MAP01 result of 10/10 and this campaign's 8/10 are both consistent with roughly 80–90% at n=10.
 
-Pure-Python geometry oracle that reads the same serialized state the model backends see and applies hand-coded tactical rules: aim, advance, retreat, scan. It serves three roles: **baseline** (the target all models are gated against), **fallback source** (its answer substitutes whenever a model answer falls below the calibrated confidence floor), and **label source** (shadow answers logged alongside every model decision for agreement tracking).
+Realtime mode (35 Hz, ASYNC_PLAYER) runs without frame stalls (0 overruns, p99 per-tic work 8 ms). With Laya on Apple MPS, answers arrive with 230–480 ms staleness, and those older than 400 ms are dropped.
 
-Key numbers: 20.6 kills on `defend_the_center`, 70% vest on `deadly_corridor`, 100% MAP01 exit rate (10 seeds), 2020 survival tics on `health_gathering_supreme`. Runs synchronously in the game loop — no measurable per-decision latency.
+Earlier v1/v1.1 results (Mac, 2026-09-27/28) were audited against `runs/`. The milestone table matched, and the summary cards didn't. See `docs/verification-v2.md`.
 
----
-
-### Random
-
-Uniform draw over the legal option set for every typed question. Fallback is **disabled** — the random draw is applied verbatim, no confidence floor, so it is a clean ablation floor: any backend that can't beat random has learned nothing. On `defend_the_center` it roughly matches the heuristic (~20.6 kills) because opportunistic fire dominates that constrained arena, making it a weak test of decision quality. Performance collapses on navigation-heavy scenarios (15% vest, poor MAP01 completion).
-
----
-
-### Jev
-
-TypeSafe's hosted System 1 model (`api.typesafe.ai/v1/systemone`). Answers typed choice/noul/score questions at **~120 ms flat** regardless of how many questions are batched (1, 3, or 6), making it the fastest and most consistent backend tested. The circuit breaker falls back to the heuristic after repeated 4xx/5xx and recovers when the API stabilises; `--max-calls` caps spend.
-
-Key numbers:
-- `defend_the_center`: **22.45 ± 1.2** kills (n=20), beats heuristic, **1% fallback** ✅
-- `deadly_corridor`: **90%** vest rate (n=20) ✅
-- `health_gathering_supreme`: **1859** survival tics (−8% vs heuristic) ✅
-- `my_way_home`: **100%** success (n=20) ✅
-- `MAP01`: **70%** exit pre-v1.2; **10/10** after the unseen-attacker fix; **80%** with no fallback (5 seeds)
-- `in_danger` accuracy: **90%** — the only backend whose confidence signal is informative enough to serve as an outcome label for calibration
-- Latency: 116–130 ms p50, ~170 ms p95
-
-The only backend to clear every M1–M3 milestone gate. The `in_danger` signal quality makes Jev the natural label source for fine-tuning Laya.
-
----
-
-### Laya
-
-Open-weight TypeSafe decision model (HuggingFace `typed-decisions` checkpoint), served either in-process via MPS on Apple silicon (`laya-inproc`) or over HTTP from a `laya-serve` host. Encodes the state independently per question, so batching multiple questions multiplies latency (~145 ms × n on MPS).
-
-Key numbers:
-- `defend_the_center`: **22.5 ± 0.8** kills (n=20) — but at **58–66% fallback** (most decisions are the heuristic's) ✅
-- `deadly_corridor`: 70% vest ✅, `health_gathering_supreme`: 2020 tics ✅, `my_way_home`: 100% ✅ — all largely heuristic-driven
-- `MAP01`: 100% exit (10 seeds, 71% fallback); **0/1 without fallback** (timed out at 32% explored, degraded to ~5 s/decision on MPS after overnight use)
-- `in_danger` accuracy: **4%** — anti-informative; Laya's probability outputs are near-uniform, almost every answer falls below the confidence floor
-- Latency: 232–449 ms p50 per decision on MPS; degrades to ~5 s after extended use
-
-Laya's M2/M3 milestone numbers largely reflect the heuristic acting as fallback. A CUDA or ROCm host is required for meaningful latency and to re-run no-fallback evals; see `configs/backends/laya-framework.yaml` and the "Not done" section.
-
----
-
-### Clef-Flash (Cloudflare)
-
-Open-weight 9B "joint schema head" decision model ([`Cloudflare/clef-flash`](https://huggingface.co/Cloudflare/clef), Apache-2.0). Uses the same `systemone-http` transport as Jev with no bespoke client code, served via `scripts/serve_clef.py` running the HF weights in-process. On this host (Framework Desktop, 32GB RAM, CPU only) Clef-Flash (~19GB bf16 resident) fits in memory; the 27B Clef does not.
-
-Key numbers (spot-check — 2 runs, n=1 episode each, seed 1234, `defend_the_center`):
-- Kills: **7**, damage taken: **0**, fallback: **0%**, decisions: **14**, heuristic agreement: **100%**
-- Latency: **~1.8 s p50** / ~2.2 s p95 (CPU bf16); Cloudflare's H200 baseline is 39 ms median
-
-The **0% fallback rate** is the headline result — every answer cleared the calibrated confidence floor, contrasting sharply with Laya's 58–66%. This suggests Clef-Flash produces well-separated probability mass on its preferred option where Laya produces near-uniform distributions. Latency is 15× slower than Jev due to CPU inference; ROCm torch for gfx1151 is the natural next step (see `configs/backends/clef.yaml` to point at a GPU-accelerated server). Full milestone evals (20-episode M1, M2 suites) are pending.
-
----
-
-### SemIf
-
-Open-source Jev-wire-compatible decision model ([SemIf-OpenJev](https://github.com/TheoLeeCJ/SemIf-OpenJev), MIT) based on Qwen3.5-4B, using typed-option logits and shared-prefix decoding to amortise encoding across multiple questions sharing the same state. Pins its own torch/mlx dependency versions and runs in a separate venv; `scripts/semif_serve.py` exposes the Jev HTTP protocol.
-
-Key numbers: No `s1doom eval` run completed yet. Measured from direct testing on M-series Mac (MLX BF16): ~1.3 s for one question / ~1.8 s for three (p50). Smaller footprint than Clef-Flash (4B vs 9B). Pending: full eval suite, fallback rate measurement, and calibration on `defend_the_center` baseline.
+**Model notes:**
+- **Laya**: `typed-decisions` has 0.42B parameters. It encodes the state once per question: on the Framework GPU it is the fastest backend at 1–3 questions, and Jev is faster at 6.
+- **SemIf**: Qwen3.5-4B option logits with shared-prefix scoring.
+- **Clef-Flash**: 9B, with one joint pass over all questions.
+- **Jev**: hosted API, flat at ~130 ms for 3–6 questions.
 
 ## Findings
 - **The bearing and turn sign conventions were verified on the engine and are unit-tested.** The positive turn delta turns right, so `turn = -bearing`.
-- **defend_the_center is dominated by the controller.** With aligned-only firing, even `random` roughly matches the heuristic (~20 kills out of 26 pistol rounds), so it's a weak test of decision quality. Use `--no-opportunistic-fire` and the harder scenarios to tell backends apart.
+- **defend_the_center is dominated by the controller.** With aligned-only firing, random roughly matches the heuristic (~20 kills out of 26 pistol rounds). With `--no-opportunistic-fire`, random scores *highest* (23.55 against 22.75–23.10 for the models; v2 campaign). Neither variant is a test of decision quality. Use deadly_corridor, and the no-fallback runs, to tell backends apart.
 - **Full-level autoplay needed Doom physics in the nav graph.** Three fixes were required: nodes offset off the linedef grid; floor and ceiling taken over every sector the 32-unit box touches (Freedoom2 MAP01's exit room is behind an 8-unit crack with floor −480); and remote-door switches planned as part of the path.
-- **Jev versus Laya latency:** Jev is about 120 ms and flat across 1, 3 and 6 questions. Laya typed-decisions on Apple MPS takes about 145 ms per question (147/432/758 ms). Laya encodes the state once per question, so in realtime mode Laya answers are often stale on this host. A CUDA host is the fix; benchmark it with `bench-backend`.
-- **Confidence isn't comparable across backends.** Laya's choice `confidence` is entropy-based (0.01 for a 56/44 split), and Jev's noul answers have none. The gate uses our own max-probability after temperature calibration.
+- **Latency depends on the host.** Jev is about 130 ms and flat across 3 and 6 questions. Laya encodes the state once per question: 147/432/758 ms on Apple MPS, and 44/99/169 ms on the Framework GPU. On the Framework, SemIf (275–643 ms) and Clef-Flash (540–1051 ms) are slower than both.
+- **Confidence isn't comparable across backends.** Laya's choice `confidence` is entropy-based (0.01 for a 56/44 split), and Jev's noul answers have none. The gate uses our own max-probability. No eval so far has passed `--calibration`, so all gating used raw probabilities. Laya's in_danger (AUC 0.88, but always above 0.5) needs a fitted bias as well as a temperature before its fallback rate means anything.
 
 ## Deviations from PLAN.md (and why)
 - **Repo layout:** the package lives at the repo root (`src/s1doom`), not in an `s1doom/` subfolder.
@@ -225,9 +147,6 @@ Key numbers: No `s1doom eval` run completed yet. Measured from direct testing on
 
 ## Not done / needs outside input
 - `doom1.wad` (E1M1) isn't shipped. Drop it in `./wads/` and run `eval --scenario doom1_e1m1`; the run is skipped cleanly if the file is absent.
-- **Laya on a faster host (e.g. the Framework Desktop):** not run yet. On this Mac (MPS) Laya costs ~145 ms per question, and overnight it degraded to ~5 s per decision. Steps:
-  1. On the Framework: `git clone` this repo, `uv sync --extra laya` (use a ROCm or CUDA torch build for its GPU), then `LAYA_MODELS=typed-decisions uv run s1doom serve-laya` (listens on :8000; set `LAYA_API_KEY` to require a bearer token).
-  2. Here: set `url` in `configs/backends/laya-framework.yaml` (default `http://framework.local:8000`), then run `uv run s1doom bench-backend --backend laya-framework` to measure latency over the network.
-  3. Evals: `uv run s1doom eval --scenario defend_the_center,freedoom2_map01 --backends laya-framework --episodes 10 --tag m3` (add `--no-fallback --tag nofallback` for Laya alone).
-  4. Or run everything on the Framework with `--backends laya-inproc`, which avoids the network hop.
+- **Clef 27B on the Framework:** blocked by system RAM while loading (see `docs/verification-v2.md`, "Open items").
+- **Calibration with bias on outcome labels**, then a rerun with `--calibration`, to test Laya without its offset.
 - M5 (fine-tuning Laya, a VLM front end) wasn't started.
