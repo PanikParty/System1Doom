@@ -1,8 +1,10 @@
-"""Per-(backend, question type, n_options) temperature scaling.
+"""Per-(backend, question type, n_options) temperature scaling, plus an optional bias for nouls.
 
 Fit offline from logged runs: each decision row logs the model's raw answer and the
 shadow heuristic's answer; the label is the heuristic answer (agreement labels) or, for
 `in_danger`, whether damage was actually taken in the following period (outcome labels).
+With `bias=True`, noul groups get Platt scaling (logit' = logit/T + b), which also fixes an
+offset: Laya's in_danger is always 0.52-0.66 while damage follows only ~4% of the time.
 """
 from __future__ import annotations
 
@@ -24,14 +26,16 @@ def key(backend: str, qtype: str, k: int) -> str:
 
 
 class Calibrator:
-    def __init__(self, temps: dict[str, float] | None = None) -> None:
+    def __init__(self, temps: dict[str, float] | None = None, biases: dict[str, float] | None = None) -> None:
         self.temps = temps or {}
+        self.biases = biases or {}
 
     @classmethod
     def load(cls, path: str | None) -> "Calibrator":
         if not path or not Path(path).exists():
             return cls()
-        return cls(yaml.safe_load(Path(path).read_text()).get("temperatures", {}))
+        cfg = yaml.safe_load(Path(path).read_text())
+        return cls(cfg.get("temperatures", {}), cfg.get("biases", {}))
 
     def temperature(self, backend: str, a: Answer) -> float:
         k = 2 if a.type == "noul" else len(a.probabilities)
@@ -39,11 +43,12 @@ class Calibrator:
 
     def apply(self, backend: str, a: Answer) -> Answer:
         T = self.temperature(backend, a)
-        if T == 1.0:
+        b = self.biases.get(key(backend, a.type, 2), 0.0) if a.type == "noul" else 0.0
+        if T == 1.0 and b == 0.0:
             return a
         if a.type == "noul":
             p = min(max(float(a.value), 1e-6), 1 - 1e-6)
-            z = math.log(p / (1 - p)) / T
+            z = math.log(p / (1 - p)) / T + b
             q = 1 / (1 + math.exp(-z))
             return Answer(type="noul", value=q, probabilities={"true": q, "false": 1 - q},
                           raw_confidence=a.raw_confidence)
@@ -125,10 +130,44 @@ def collect(run_globs: list[str], labels: str = "outcome") -> dict[str, list[tup
     return groups
 
 
-def fit(groups: dict[str, list[tuple[dict, str]]], min_n: int = 30) -> tuple[dict[str, float], dict]:
+def platt(p_true: np.ndarray, y: np.ndarray, iters: int = 50) -> tuple[float, float]:
+    """Logistic regression of y on logit(p): returns (T, b) with logit' = logit/T + b."""
+    x = np.log(np.clip(p_true, 1e-6, 1 - 1e-6) / np.clip(1 - p_true, 1e-6, 1))
+    X = np.stack([x, np.ones_like(x)], 1)
+    w = np.array([1.0, 0.0])
+    for _ in range(iters):  # Newton / IRLS, lightly ridged so separable data stays finite
+        q = 1 / (1 + np.exp(-X @ w))
+        H = X.T @ (X * (q * (1 - q))[:, None]) + 1e-6 * np.eye(2)
+        step = np.linalg.solve(H, X.T @ (y - q))
+        w += step
+        if np.abs(step).max() < 1e-8:
+            break
+    if w[0] <= 1e-3:  # no usable ranking signal: keep the probabilities' order, only shift them
+        w[0] = 1e-3
+    return float(1 / w[0]), float(w[1])
+
+
+def fit(groups: dict[str, list[tuple[dict, str]]], min_n: int = 30,
+        bias: bool = False) -> tuple[dict[str, float], dict]:
+    """Fit temperatures (and, with bias=True, noul biases, returned in report[gk]["b"])."""
     temps, report = {}, {}
     for gk, rows in groups.items():
         if len(rows) < min_n:
+            continue
+        if bias and gk.split("|")[1] == "noul":
+            pt = np.array([p["true"] for p, _ in rows], dtype=float)
+            y = np.array([lbl == "true" for _, lbl in rows], dtype=float)
+            T, b = platt(pt, y)
+            p1 = np.array([Calibrator({gk: T}, {gk: b}).apply(gk.split("|")[0], Answer(type="noul", value=v)).value
+                           for v in pt])
+            corr0, corr1 = ((pt >= 0.5) == (y == 1)).astype(float), ((p1 >= 0.5) == (y == 1)).astype(float)
+            temps[gk] = round(T, 4)
+            report[gk] = {"n": len(rows), "T": round(T, 3), "b": round(b, 4), "acc": float(corr0.mean()),
+                          "acc_after": float(corr1.mean()), "brier_before": float(((pt - y) ** 2).mean()),
+                          "brier_after": float(((p1 - y) ** 2).mean()),
+                          "ece_before": ece(np.maximum(pt, 1 - pt), corr0), "ece_after": ece(np.maximum(p1, 1 - p1), corr1),
+                          "conf_before": np.maximum(pt, 1 - pt).tolist(), "conf_after": np.maximum(p1, 1 - p1).tolist(),
+                          "correct": corr0.tolist()}
             continue
         best_T, best = 1.0, math.inf
         for T in T_GRID:

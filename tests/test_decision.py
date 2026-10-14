@@ -138,6 +138,22 @@ def test_temper_and_fit_recover_overconfidence():
     assert a.probabilities["a"] == pytest.approx(0.7, abs=0.08)
 
 
+def test_platt_bias_fixes_an_offset_noul():
+    """Laya-like: always says 0.52-0.66 'true' but damage follows rarely, with real ranking signal."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for _ in range(3000):
+        p = rng.uniform(0.52, 0.66)
+        rows.append(({"true": p, "false": 1 - p}, "true" if rng.random() < (p - 0.5) * 0.5 else "false"))
+    temps, rep = fit({"x|noul|2": rows}, bias=True)
+    r = rep["x|noul|2"]
+    assert r["b"] < 0 and r["brier_after"] < r["brier_before"] and r["acc_after"] > r["acc"]
+    cal = Calibrator(temps, {"x|noul|2": r["b"]})
+    lo, hi = (cal.apply("x", Answer(type="noul", value=v)).value for v in (0.53, 0.65))
+    assert lo < hi < 0.5  # order kept, offset removed
+    assert Calibrator(temps).apply("y", Answer(type="noul", value=0.6)).value == 0.6  # other backends untouched
+
+
 def test_self_consistency_disagreement_falls_back():
     bs = build_state(percept([("DoomImp", 300, 0, True)]), StateContext())
     crit = {"fight": None, "explore": None}

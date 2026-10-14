@@ -174,7 +174,8 @@ def ablate(scenario: str = "defend_the_center", backend: str = "heuristic", epis
 @app.command()
 def calibrate(runs: list[str] = typer.Option(..., help="run dirs or globs"),
               out: str = "configs/calibration.yaml", min_n: int = 30,
-              labels: str = typer.Option("outcome", help="outcome | agreement (imitation of heuristic)")):
+              labels: str = typer.Option("outcome", help="outcome | agreement (imitation of heuristic)"),
+              bias: bool = typer.Option(False, help="also fit a bias for noul questions (Platt scaling)")):
     """Fit temperature scaling per (backend, qtype, n_options) from logged runs."""
     import yaml
 
@@ -182,13 +183,15 @@ def calibrate(runs: list[str] = typer.Option(..., help="run dirs or globs"),
     from s1doom.telemetry.report import reliability_png
 
     groups = collect(runs, labels)
-    temps, report = fit(groups, min_n)
+    temps, report = fit(groups, min_n, bias=bias)
+    biases = {k: r["b"] for k, r in report.items() if "b" in r}
     Path(out).parent.mkdir(parents=True, exist_ok=True)
-    Path(out).write_text(yaml.safe_dump({"temperatures": temps, "fitted_at": time.strftime("%Y-%m-%d"),
+    Path(out).write_text(yaml.safe_dump({"temperatures": temps, "biases": biases, "fitted_at": time.strftime("%Y-%m-%d"),
                                          "labels": labels, "runs": runs}))
-    t = Table("group", "n", "T", "acc", "ECE before", "ECE after")
+    t = Table("group", "n", "T", "b", "acc", "acc after", "ECE before", "ECE after")
     for k, r in report.items():
-        t.add_row(k, str(r["n"]), f"{r['T']:.2f}", f"{r['acc']:.2f}", f"{r['ece_before']:.3f}", f"{r['ece_after']:.3f}")
+        t.add_row(k, str(r["n"]), f"{r['T']:.2f}", f"{r.get('b', 0):.2f}", f"{r['acc']:.2f}",
+                  f"{r['acc_after']:.2f}" if "acc_after" in r else "", f"{r['ece_before']:.3f}", f"{r['ece_after']:.3f}")
     console.print(t)
     if report:
         png = Path(out).with_suffix(".reliability.png")
