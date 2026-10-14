@@ -91,23 +91,23 @@ src/s1doom/agent.py    episode loop (turn + realtime)      src/s1doom/cli.py  ty
 ```
 
 ## Results (verification campaign v2, 2026-10-13)
-Every backend ran on one code version (`ae293c3`, prompts v1.2; Clef 27B: see §), the same seeds (1234+i) and turn mode, on the Framework Desktop. The full method, CIs, provenance checks and a verdict for every earlier claim are in [`docs/verification-v2.md`](docs/verification-v2.md). Δ is the paired difference against the heuristic, with a bootstrap 95% CI; **bold** marks a CI that excludes 0.
+Every backend ran on the same play code (`ae293c3`, prompts v1.2; Clef 27B: see §), the same seeds (1234+i) and turn mode, on the Framework Desktop. The full method, CIs, provenance checks and a verdict for every earlier claim are in [`docs/verification-v2.md`](docs/verification-v2.md). Δ is the paired difference against the heuristic, with a bootstrap 95% CI; **bold** marks a CI that excludes 0.
 
 | outcome (n) | heuristic | random | Jev | Laya | SemIf | Clef-Flash | Clef 27B § |
 |---|---|---|---|---|---|---|---|
-| defend_the_center kills (20) | 20.60 | 21.25 | 22.35 (Δ **+1.75**) | 22.50 (Δ **+1.90**) | 22.55 (Δ **+1.95**) | 22.45 (Δ **+1.85**) | 22.90 (Δ **+2.80**) |
+| defend_the_center kills (20) | 20.60 | 21.25 | 22.35 (Δ **+1.75**) | 22.50 (Δ **+1.90**) | 22.55 (Δ **+1.95**) | 22.45 (Δ **+1.85**) | 22.40 (Δ **+1.80**) |
 | deadly_corridor vest (20) | 80% | 30% | 90% | 95% | 55% | 55% (Δ **−25**) | **90%** |
-| health_gathering_supreme tics (20) | 2020 | 1236 | 1969 | 2020 † | 1811 (−10.3%) | 1953 | 2017 |
+| health_gathering_supreme tics (20) | 2020 | 1236 | 1969 | 2020 † | 1811 (−10.3%) | 1953 | 2056 |
 | my_way_home success (20) | 100% | 95% | 100% | 100% | 100% | 100% | 100% |
-| Freedoom2 MAP01 exit (10) | 100% | 90% | 80% | 100% † | 100% | 90% | 100% (5/5) |
-| **no fallback**: deadly_corridor / health_gathering / my_way_home / MAP01 | – | – | 95% / 1870 / 100% / 80% | 95% / **585** / **50%** / **40%** | 60% / 1935 / 100% / 90% | 70% / 1866 / 100% / 90% | **95%** / 1890 / 100% / 100% |
-| fallback rate (dtc / dc / hgs / mwh / MAP01) | – | disabled | 2 / 7 / 9 / 1 / 2% | 13 / 59 / 66 / 19 / 66% | 2 / 5 / 8 / 0 / 2% | 2 / 7 / 26 / 0 / 7% | 4 / 6 / 23 / 0 / 3% |
+| Freedoom2 MAP01 exit (10) | 100% | 90% | 80% | 100% † | 100% | 90% | 100% |
+| **no fallback**: deadly_corridor / health_gathering / my_way_home / MAP01 | – | – | 95% / 1870 / 100% / 80% | 95% / **585** / **50%** / **40%** | 60% / 1935 / 100% / 90% | 70% / 1866 / 100% / 90% | **95%** / **1747** / 100% / 100% |
+| fallback rate (dtc / dc / hgs / mwh / MAP01) | – | disabled | 2 / 7 / 9 / 1 / 2% | 13 / 59 / 66 / 19 / 66% | 2 / 5 / 8 / 0 / 2% | 2 / 7 / 26 / 0 / 7% | 4 / 6 / 23 / 0 / 4% |
 | latency p50, 1 / 3 / 6 questions (solo bench) | – | – | 214 ‡ / 128 / 142 ms | 44 / 99 / 169 ms | 275 / 458 / 643 ms | 540 / 795 / 1051 ms | 1260 / 1973 / 2741 ms |
-| in_danger AUC within scenario, dtc / dc ¶ | 0.68 / 0.62 | ~0.5 | 0.89 / 0.86 | **0.72 / 0.74** | 0.91 / 0.83 | 0.89 / 0.79 | 0.91 / 0.86 |
+| in_danger AUC within scenario, dtc / dc ¶ | 0.68 / 0.62 | ~0.5 | 0.89 / 0.86 | **0.72 / 0.74** | 0.91 / 0.83 | 0.89 / 0.79 | 0.90 / 0.86 |
 
 † Laya's results with fallback are mostly the heuristic's: health_gathering is identical to the heuristic in 20/20 episodes. Alone, Laya fails health_gathering and my_way_home, and finishes MAP01 only 4/10 times (six timeouts).  
-¶ Computed within each scenario. Pooling across scenarios confounds the scenario mix with ranking: Laya's pooled AUC is 0.88, but it ranks danger worst within every scenario. Every backend's in_danger is less accurate than always answering "false" at a 0.5 threshold.  
-§ Clef 27B ran afterwards on `6187e8e` (game code unchanged) with 10 episodes per scenario and 5 on MAP01; deadly_corridor has the full 20. Its Δs are paired on its own seeds. Like-for-like tables are in `docs/verification-v2.md`, "Clef 27B".  
+¶ Computed within each scenario. Pooling across scenarios confounds the scenario mix with ranking: Laya's pooled AUC is 0.88, but within scenarios it ranks danger worst of the models on defend_the_center, deadly_corridor and MAP01. On health_gathering every backend is near chance. Every backend's in_danger is less accurate than always answering "false" at a 0.5 threshold.  
+§ Clef 27B ran afterwards on the same seeds and n (commits `6187e8e`/`86d6d95`; play is identical to `ae293c3`). Without fallback it is significantly worse than the heuristic on health_gathering: Δ −273 tics [−515, −57].  
 ‡ Includes connection warm-up (p95 733 ms). Laya and SemIf are measured on the Framework's GPU; Jev is called from the Framework.
 
 **Reading the table:**
@@ -149,6 +149,5 @@ Earlier v1/v1.1 results (Mac, 2026-09-27/28) were audited against `runs/`. The m
 
 ## Not done / needs outside input
 - `doom1.wad` (E1M1) isn't shipped. Drop it in `./wads/` and run `eval --scenario doom1_e1m1`; the run is skipped cleanly if the file is absent.
-- **Clef 27B at full n:** its lane ran 10 episodes per scenario (5 on MAP01). Only deadly_corridor has the full 20.
 - **Outcome labels for choice questions** (for example, whether the chosen target died), so Laya's flat mode, target and pickup probabilities could be calibrated.
 - M5 (fine-tuning Laya, a VLM front end) wasn't started.
